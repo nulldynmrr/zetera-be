@@ -142,6 +142,8 @@ model Journal {
   tier             JournalTier       @default(SUPPORTING)
   verifiedAt       DateTime?         // Diisi saat PDF+DOI tervalidasi
   pdfStoragePath   String?           @db.VarChar(500) // Path PDF yang sudah terverifikasi
+  isRetracted      Boolean?          @default(false)  // OpenAlex / Retraction Watch
+  isInDoaj         Boolean?          @default(false)  // Terindeks DOAJ resmi
   status           JournalStatus     @default(CANDIDATE)
   sourceType       JournalSourceType @default(MANUAL)
   fileKey          String?           @db.VarChar(255)

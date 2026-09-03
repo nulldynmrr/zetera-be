@@ -177,12 +177,22 @@ export async function verifyJournalDoi(journalId, userId) {
     throw err;
   }
 
-  // Update verifiedAt dan pdfStoragePath jika ada filePath
+  // Evaluasi Anti-Fraud (Retraction Watch & DOAJ via OpenAlex)
+  const isRetracted = Boolean(openAlexData?.is_retracted);
+  const isInDoaj = Boolean(
+    openAlexData?.primary_location?.source?.is_in_doaj ||
+    openAlexData?.locations?.some((loc) => loc?.source?.is_in_doaj)
+  );
+
+  // Update verifiedAt, status, dan flag anti-fraud
   const updated = await prisma.journal.update({
     where: { id: journalId },
     data: {
       verifiedAt: new Date(),
       pdfStoragePath: journal.filePath || journal.pdfStoragePath || null,
+      isRetracted,
+      isInDoaj,
+      ...(isRetracted && { status: "REJECTED" }),
       // Perkaya metadata dari OpenAlex jika tersedia
       ...(openAlexData && {
         doi: rawDoi,
@@ -191,9 +201,20 @@ export async function verifyJournalDoi(journalId, userId) {
     },
   });
 
+  const badge = isRetracted
+    ? { code: "RETRACTED", label: "❌ Jurnal ini telah diretraksi (Retraction Watch)", variant: "danger" }
+    : isInDoaj
+    ? { code: "DOAJ_VERIFIED", label: "✅ Terverifikasi, tidak diretraksi & terindeks DOAJ", variant: "success" }
+    : { code: "DOI_VALID", label: "⚠️ DOI valid, tapi belum terindeks DOAJ — cek manual", variant: "warning" };
+
   return {
     success: true,
-    message: `DOI "${rawDoi}" berhasil diverifikasi via ${openAlexData ? "OpenAlex" : "Crossref"}.`,
+    isRetracted,
+    isInDoaj,
+    badge,
+    message: isRetracted
+      ? `PERINGATAN: Jurnal dengan DOI "${rawDoi}" telah DIRETRAKSI (Retraction Watch). Status otomatis ditolak (REJECTED).`
+      : `DOI "${rawDoi}" berhasil diverifikasi via ${openAlexData ? "OpenAlex" : "Crossref"}.${isInDoaj ? " Jurnal terdaftar resmi di DOAJ." : ""}`,
     data: updated,
   };
 }
