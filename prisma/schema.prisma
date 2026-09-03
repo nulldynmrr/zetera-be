@@ -154,6 +154,14 @@ model Journal {
   extractionMethod ExtractionMethod  @default(PDFPARSE)
   extractionStatus ExtractionStatus  @default(PENDING)
   extractionError  String?           @db.Text
+  // ── Discovery & Sourcing Pipeline Fields ──
+  sourceProvider   JournalSourceProvider?
+  externalId       String?           @db.VarChar(255)
+  openAccessPdfUrl String?           @db.VarChar(1000)
+  hasFullPdf       Boolean?          @default(false)
+  linkPreviewImage String?           @db.VarChar(1000)
+  linkPreviewTitle String?           @db.VarChar(500)
+  citedByCount     Int?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -535,3 +543,29 @@ model AiSkillPrompt {
   @@index([code])
   @@map("ai_skill_prompts")
 }
+
+// ── 9. Journal Discovery & Multi-Provider Search Cache ──────
+enum JournalSourceProvider {
+  OPENALEX
+  SEMANTIC_SCHOLAR
+  CORE
+  PUBMED
+  ARXIV
+  CROSSREF
+  UPLOAD
+  MANUAL
+}
+
+model JournalSearchCache {
+  id         String   @id @default(cuid())
+  projectId  String
+  query      String   @db.VarChar(500)
+  domainHint String?  @db.VarChar(20)
+  resultJson Json
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([projectId, createdAt])
+  @@map("journal_search_cache")
+}
+

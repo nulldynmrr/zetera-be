@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import * as journalController from "../controllers/journal.controller.js";
+import discoveryRoutes from "../modules/journal-discovery/journal-discovery.routes.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 
 const router = Router({ mergeParams: true });
@@ -44,6 +45,9 @@ router.post("/", journalController.createJournal);
 router.post("/upload", upload.single("file"), journalController.uploadPdf);
 router.post("/doi-lookup", journalController.lookupDoi);
 router.delete("/purge-rejected", journalController.purgeRejected);
+
+// ── Journal Discovery & Auto-Search Routes (PRD 011) ────────
+router.use("/", discoveryRoutes);
 
 router.get("/:journalId", journalController.getJournal);
 router.patch("/:journalId", journalController.updateJournal);
