@@ -1,0 +1,535 @@
+// ─────────────────────────────────────────────────────────────
+// Prisma Schema — Zetera Research Workspace (MySQL phpMyAdmin)
+// Reference: /docs/problem-fix-blueprint-v2.md (primary)
+//            /docs/Bblueprint-v2.md (context)
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Users ───────────────────────────────────────────
+model User {
+  id        String            @id @default(cuid())
+  email     String            @unique @db.VarChar(255)
+  name      String            @db.VarChar(255)
+  password  String            @db.VarChar(255)
+  role      UserRole          @default(USER)
+  avatarUrl String?           @db.VarChar(500)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  projects       ResearchProject[]
+  profile        UserProfile?
+  creditBalances UserCreditBalance[]
+  aiUsageLogs    AiUsageLog[]
+
+  @@map("users")
+}
+
+// ── User Profile (Onboarding — one-time, per user) ──
+// Disimpan terpisah dari User karena sifatnya statis per-user
+// dan dipakai ulang di setiap proyek/proposal (§3.2 blueprint)
+model UserProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  namaLengkap  String   @db.VarChar(255)
+  nim          String   @db.VarChar(50)
+  programStudi String   @db.VarChar(100)
+  fakultas     String   @db.VarChar(100)
+  universitas  String   @db.VarChar(200)
+  kota         String   @db.VarChar(100)
+  logoUrl      String?  @db.VarChar(500)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// ── Research Projects ────────────────────────────────
+model ResearchProject {
+  id              String         @id @default(cuid())
+  userId          String
+  title           String         @db.VarChar(255)
+  description     String?        @db.Text
+  field           String?        @db.VarChar(100)
+  nama            String?        @db.VarChar(255)
+  logoUrl         String?        @db.VarChar(500)
+  prodi           String?        @db.VarChar(100)
+  kelas           String?        @db.VarChar(100)
+  approachType    String?        @db.VarChar(50)  // QUANTITATIVE | QUALITATIVE | MIXED
+  approachConfig  Json?          // Flexible approach variables/informants
+  commonNarrative Json?          // Background, purpose, scope
+  customOutline   Json?          // Dynamic recommended/custom sub-chapters
+  citationStyle   String?        @db.VarChar(50)  // APA | IEEE | MLA | HARVARD | VANCOUVER | CHICAGO
+  status          ProjectStatus  @default(ACTIVE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  frameworkNodes FrameworkNode[]
+  frameworkEdges FrameworkEdge[]
+  journals       Journal[]
+  outlineItems   ResearchOutlineItem[]
+  memory         ProjectMemory?
+
+  @@map("research_projects")
+}
+
+// ── Framework Nodes (React Flow Node Canvas) ─────────
+model FrameworkNode {
+  id             String             @id @default(cuid())
+  projectId      String
+  label          String             @db.VarChar(255)
+  type           NodeType           @default(VARIABLE)
+  description    String?            @db.Text
+  status         NodeEvidenceStatus @default(UNSUPPORTED)
+  positionX      Float              @default(100)
+  positionY      Float              @default(100)
+  methodCoverage String?            @db.Text
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  project      ResearchProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceEdges  FrameworkEdge[]      @relation("SourceNode")
+  targetEdges  FrameworkEdge[]      @relation("TargetNode")
+  nodeMappings JournalNodeMapping[]
+
+  @@map("framework_nodes")
+}
+
+// ── Framework Edges (Relationship Connections) ───────
+model FrameworkEdge {
+  id                String   @id @default(cuid())
+  projectId         String
+  sourceNodeId      String
+  targetNodeId      String
+  relationshipLabel String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project    ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceNode FrameworkNode   @relation("SourceNode", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode FrameworkNode   @relation("TargetNode", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@map("framework_edges")
+}
+
+// ── Journals (Fase 2: Library & Reader) ──────────────
+// Masalah 1 fix: tambah rawExtraction + extraction tracking fields
+// rawExtraction menyimpan hasil mentah extractor (blok konten + nomor halaman)
+// sehingga AI Tier 2 tidak perlu re-parse PDF — baca dari sini
+model Journal {
+  id               String            @id @default(cuid())
+  projectId        String
+  title            String            @db.VarChar(500)
+  authors          String?           @db.VarChar(500)
+  year             Int?
+  publication      String?           @db.VarChar(255)
+  doi              String?           @db.VarChar(255)
+  url              String?           @db.VarChar(1000)
+  abstract         String?           @db.Text
+  fullText         String?           @db.Text
+  keyFindings      String?           @db.Text
+  relevanceScore   Float?            @default(0)
+  // ── Tiering & Verification (Overhaul v2) ──
+  tier             JournalTier       @default(SUPPORTING)
+  verifiedAt       DateTime?         // Diisi saat PDF+DOI tervalidasi
+  pdfStoragePath   String?           @db.VarChar(500) // Path PDF yang sudah terverifikasi
+  status           JournalStatus     @default(CANDIDATE)
+  sourceType       JournalSourceType @default(MANUAL)
+  fileKey          String?           @db.VarChar(255)
+  filePath         String?           @db.VarChar(500)
+  fileSize         Int?
+  // ── Masalah 1: Extraction tracking fields ──
+  rawExtraction    Json?             // Hasil mentah extractor (blok + halaman)
+  extractionMethod ExtractionMethod  @default(PDFPARSE)
+  extractionStatus ExtractionStatus  @default(PENDING)
+  extractionError  String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  project      ResearchProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  nodeMappings JournalNodeMapping[]
+
+  @@map("journals")
+}
+
+// ── Journal Node Mappings (Cross-Check Evidence) ─────
+// Masalah 2 fix: tambah sourceDoi (denormalized) + sourcePage NOT NULL
+// sourceDoi: di-copy dari journal.doi SAAT evidence dibuat (immutable after creation)
+// sourcePage: wajib diisi — tidak boleh null (hard requirement sesuai §2.1 blueprint)
+model JournalNodeMapping {
+  id           String       @id @default(cuid())
+  journalId    String
+  nodeId       String
+  evidenceType EvidenceType @default(SUPPORTS)
+  quote        String?      @db.Text
+  sourcePage   Int          @default(0) // NOT NULL — wajib per blueprint §2.1; 0 = legacy/unknown (dipaksa isi saat create baru via validator)
+  sourceDoi    String?      @db.VarChar(255) // denormalized copy dari journal.doi saat dibuat
+  confidence   Float?       @default(1.0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  journal Journal       @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  node    FrameworkNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@map("journal_node_mappings")
+}
+
+// ── Proposal Templates (Library) ─────────────────────
+// Masalah 3: system-managed + user-cloneable templates
+// ownerId null = system default template
+model ProposalTemplate {
+  id              String   @id @default(cuid())
+  ownerId         String?  @db.VarChar(50) // null = system default
+  name            String   @db.VarChar(200)
+  sourceFaculty   String?  @db.VarChar(100)
+  isDefault       Boolean  @default(false)
+  // Overhaul v2: Penomoran bertingkat konfigurable per institusi
+  numberingConfig Json?    // { bab, level2, level3, level4, level5, level6 }
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sections ProposalTemplateSection[]
+
+  @@map("proposal_templates")
+}
+
+// ── Proposal Template Sections ────────────────────────
+model ProposalTemplateSection {
+  id           String   @id @default(cuid())
+  templateId   String
+  order        Int
+  title        String   @db.VarChar(200)
+  isOptional   Boolean  @default(false)
+  guidanceText String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  template ProposalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("proposal_template_sections")
+}
+
+// ── Enums ─────────────────────────────────────────
+enum UserRole {
+  ADMIN
+  USER
+}
+
+// ── Research Outline Items (Tahap 5: Research Blueprint) ────
+model ResearchOutlineItem {
+  id           String            @id @default(cuid())
+  projectId    String
+  itemId       String            @db.VarChar(20)  // "1.1.1", "2.3", dll
+  title        String            @db.VarChar(255)
+  bab          Int
+  depth        Int               @default(1)
+  order        Int               @default(0)
+  status       OutlineItemStatus @default(EMPTY)
+  researchTask Json?             // { what, why, how, searchQueries, targetEvidence, evidenceType }
+  evidence     Json?             // array of evidence objects
+  userNotes    String?           @db.Text
+  isLocked     Boolean           @default(false)
+  dependsOn    Json?             // array of itemId strings
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  project ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, itemId])
+  @@map("research_outline_items")
+}
+
+enum OutlineItemStatus {
+  EMPTY
+  IN_PROGRESS
+  COMPLETED
+  NEEDS_MORE
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum NodeType {
+  VARIABLE
+  CONCEPT
+  METHOD
+  THEORY
+  GAP
+}
+
+enum NodeEvidenceStatus {
+  UNSUPPORTED
+  SUPPORTED
+  CONTRADICTORY
+  NEEDS_REVIEW
+}
+
+enum JournalStatus {
+  CANDIDATE
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum JournalSourceType {
+  PDF
+  DOI
+  URL
+  MANUAL
+}
+
+enum EvidenceType {
+  SUPPORTS
+  CONTRADICTS
+  MENTIONS
+}
+
+// ── Overhaul v2: Journal Tiering ────────────────────
+enum JournalTier {
+  PRIMARY    // Referensi utama — wajib PDF+DOI terverifikasi
+  SUPPORTING // Referensi pendukung (default)
+  EXCLUDED   // Dikecualikan dari outline/proposal
+}
+
+// ── Overhaul v2: Project Memory (Context Store) ─────
+// Menyimpan konteks persisten per project untuk AI Writer
+// Memory selalu dibaca sebelum generate outline/proposal
+model ProjectMemory {
+  id              String   @id @default(cuid())
+  projectId       String   @unique
+  tocSnapshot     Json?    // Struktur TOC final yang difinalisasi user
+  citationMap     Json?    // { sectionId -> [{ journalId, doi, page, title }] }
+  writerDecisions Json?    // Ringkasan keputusan AI Writer (gaya, revisi)
+  frameworkSnap   Json?    // Snapshot node/edge terkompresi (delta)
+  lastUpdated     DateTime @default(now()) @updatedAt
+
+  project ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_memories")
+}
+
+// ── Masalah 1: Enum baru untuk extraction tracking ──
+enum ExtractionMethod {
+  MINERU_PIPELINE
+  MINERU_VLM
+  GROBID
+  PDFPARSE
+  OCR
+  MANUAL
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+// ── System Encrypted Configs / API Keys ────────────────
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  iv          String?  @db.VarChar(64)
+  tag         String?  @db.VarChar(64)
+  description String?  @db.VarChar(255)
+  isEncrypted Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_configs")
+}
+
+// ── 1. Singleton Master Exchange & Credit Settings ────
+model SystemBillingConfig {
+  id                 Int      @id @default(1)
+  globalMultiplier   Float    @default(1.35) // Margin markup (e.g. 1.35 = 35% profit margin)
+  baseRateUsdIdr     Float    @default(16500.0) // Kurs mentah USD -> IDR
+  inflationBuffer    Float    @default(0.05) // Buffer inflasi/fluktuasi (5%)
+  referenceCreditIdr Float    @default(500.0) // Fallback harga 1 kredit dalam IDR
+  minCreditFloor     Int      @default(1) // Minimal kredit per panggilan berbayar (0 = nonaktif)
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_billing_configs")
+}
+
+// ── 2. Master Model AI & Pricing Unit ─────────────────
+model AiModelConfig {
+  id                String           @id @default(cuid())
+  routerLabel       String           @db.VarChar(100)
+  baseUrl           String           @db.VarChar(500)
+  modelName         String           @db.VarChar(150)
+  apiKeyEncrypted   String           @db.Text
+  apiKeyIv          String?          @db.VarChar(64)
+  apiKeyTag         String?          @db.VarChar(64)
+  modelKind         AiModelKind      @default(LLM)
+  pricingUnit       PricingUnit      @default(TOKEN)
+  priceInputPer1M   Float            @default(0.0)
+  priceOutputPer1M  Float            @default(0.0)
+  pricePerDocument  Float            @default(0.0)
+  maxBudgetUsd      Float?           @default(50.0)
+  rpmLimit          Int?             @default(60)
+  avgTokensPerUse   Int?             @default(1200)
+  isActive          Boolean          @default(true)
+  isFreeTier        Boolean          @default(false)
+  lastSyncedBalance Float?
+  lastSyncedAt      DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  primaryRoutings   FeatureRouting[] @relation("PrimaryModel")
+  fallbackRoutings  FeatureRouting[] @relation("FallbackModel")
+  usageLogs         AiUsageLog[]
+
+  @@map("ai_model_configs")
+}
+
+// ── 3. Definisi Kode Fitur Riset Akademik ─────────────
+model ResearchFeature {
+  id             String          @id @default(cuid())
+  code           String          @unique @db.VarChar(100)
+  label          String          @db.VarChar(200)
+  description    String?         @db.Text
+  baseCreditCost Int             @default(0)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  routing        FeatureRouting?
+  usageLogs      AiUsageLog[]
+
+  @@map("research_features")
+}
+
+// ── 4. Routing Matriks Fitur -> Model AI (Dual Tier) ──
+model FeatureRouting {
+  id              String          @id @default(cuid())
+  featureId       String          @unique
+  primaryModelId  String
+  fallbackModelId String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  feature         ResearchFeature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  primaryModel    AiModelConfig   @relation("PrimaryModel", fields: [primaryModelId], references: [id])
+  fallbackModel   AiModelConfig?  @relation("FallbackModel", fields: [fallbackModelId], references: [id])
+
+  @@map("feature_routings")
+}
+
+// ── 5. Paket Harga & Langganan Kredit ─────────────────
+model CreditPackage {
+  id             String              @id @default(cuid())
+  name           String              @db.VarChar(150)
+  type           PackageType         @default(ONE_TIME)
+  creditsGranted Int
+  durationDays   Int?
+  priceNormal    Float
+  priceDiscount  Float?
+  discountStart  DateTime?
+  discountEnd    DateTime?
+  badgeLabel     String?             @db.VarChar(50)
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  userBalances   UserCreditBalance[]
+
+  @@map("credit_packages")
+}
+
+// ── 6. Saldo Kredit Pengguna ──────────────────────────
+model UserCreditBalance {
+  id               String         @id @default(cuid())
+  userId           String
+  packageId        String?
+  creditsPurchased Int            @default(0)
+  creditsRemaining Int            @default(0)
+  purchasedAt      DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  package          CreditPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("user_credit_balances")
+}
+
+// ── 7. Telemetri Log Pemakaian AI & Margin Profit ─────
+model AiUsageLog {
+  id             String           @id @default(cuid())
+  userId         String?
+  featureId      String?
+  modelId        String?
+  inputTokens    Int              @default(0)
+  outputTokens   Int              @default(0)
+  costUsd        Float            @default(0.0)
+  costIdr        Float            @default(0.0)
+  chargeUser     Float            @default(0.0)
+  creditsCharged Int              @default(0)
+  profitUsd      Float            @default(0.0)
+  isFreeTierCall Boolean          @default(false)
+  responseTimeMs Int?             @default(0)
+  statusCode     Int              @default(200)
+  createdAt      DateTime         @default(now())
+
+  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  feature        ResearchFeature? @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  model          AiModelConfig?   @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([modelId])
+  @@map("ai_usage_logs")
+}
+
+enum AiModelKind {
+  LLM
+  EXTRACTION
+  EMBEDDING
+}
+
+enum PricingUnit {
+  TOKEN
+  DOCUMENT
+}
+
+enum PackageType {
+  ONE_TIME
+  SUBSCRIPTION
+}
+
+// ── 8. AI Prompt & Skill Library (Dynamic Modeling & Prompts) ──
+model AiSkillPrompt {
+  id                 String   @id @default(cuid())
+  code               String   @unique @db.VarChar(100) // e.g. "SUBCHAPTER_1_1", "OUTLINE_BLUEPRINT_SYSTEM", "PROPOSAL_DRAFT_SYSTEM"
+  title              String   @db.VarChar(255)
+  category           String   @default("OUTLINE") @db.VarChar(50) // SUBCHAPTER | OUTLINE | PROPOSAL | SCREENING | FRAMEWORK | LITERATURE
+  tags               Json?    // ["bab1", "latar_belakang", "8_langkah", "piramida_terbalik"]
+  description        String?  @db.Text
+  systemPrompt       String   @db.LongText
+  userPromptTemplate String?  @db.LongText
+  recipeSteps        Json?    // Array of string steps
+  version            Int      @default(1)
+  isActive           Boolean  @default(true)
+  isSystem           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([category])
+  @@index([code])
+  @@map("ai_skill_prompts")
+}
