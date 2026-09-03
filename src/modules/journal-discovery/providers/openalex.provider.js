@@ -19,7 +19,8 @@ function reconstructAbstract(invertedIndex) {
 export async function searchOpenAlex(query, { limit = 10, timeoutMs = 8000 } = {}) {
   if (!query || !query.trim()) return [];
 
-  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query.trim())}&per-page=${limit}&mailto=admin@zetera.id`;
+  const email = process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
+  const url = `https://api.openalex.org/works?search=${encodeURIComponent(query.trim())}&per-page=${limit}&mailto=${email}`;
   const res = await safeFetchJson(url, {}, timeoutMs);
 
   if (!res.ok || !Array.isArray(res.data?.results)) {

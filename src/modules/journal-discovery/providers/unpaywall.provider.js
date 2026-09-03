@@ -1,13 +1,14 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { normalizeDoi } from "../../../lib/merge-deduplicate.js";
 
-export async function resolveUnpaywallPdf(doi, { email = "admin@zetera.id", timeoutMs = 6000 } = {}) {
+export async function resolveUnpaywallPdf(doi, { email, timeoutMs = 6000 } = {}) {
+  const politeEmail = email || process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
   const cleanDoi = normalizeDoi(doi);
   if (!cleanDoi) {
     return { isOa: false, pdfUrl: null, oaUrl: null };
   }
 
-  const url = `https://api.unpaywall.org/v2/${encodeURIComponent(cleanDoi)}?email=${encodeURIComponent(email)}`;
+  const url = `https://api.unpaywall.org/v2/${encodeURIComponent(cleanDoi)}?email=${encodeURIComponent(politeEmail)}`;
   const res = await safeFetchJson(url, {}, timeoutMs);
 
   if (!res.ok || !res.data) {

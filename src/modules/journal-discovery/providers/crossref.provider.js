@@ -4,8 +4,9 @@ import { createNormalizedPaper } from "./provider.contract.js";
 export async function searchCrossref(query, { limit = 8, timeoutMs = 8000 } = {}) {
   if (!query || !query.trim()) return [];
 
-  const url = `https://api.crossref.org/works?query=${encodeURIComponent(query.trim())}&rows=${limit}&mailto=admin@zetera.id`;
-  const res = await safeFetchJson(url, { headers: { "User-Agent": "Zetera/1.0 (mailto:admin@zetera.id)" } }, timeoutMs);
+  const email = process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
+  const url = `https://api.crossref.org/works?query=${encodeURIComponent(query.trim())}&rows=${limit}&mailto=${email}`;
+  const res = await safeFetchJson(url, { headers: { "User-Agent": `Zetera/1.0 (mailto:${email})` } }, timeoutMs);
 
   const items = res.data?.message?.items;
   if (!res.ok || !Array.isArray(items)) {
