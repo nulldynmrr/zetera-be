@@ -1,5 +1,6 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { createNormalizedPaper } from "./provider.contract.js";
+import { getSecret } from "../../../services/config.service.js";
 
 export async function searchSemanticScholar(query, { limit = 10, timeoutMs = 8000 } = {}) {
   if (!query || !query.trim()) return [];
@@ -7,9 +8,10 @@ export async function searchSemanticScholar(query, { limit = 10, timeoutMs = 800
   const fields = "paperId,title,authors,year,venue,externalIds,abstract,citationCount,isOpenAccess,openAccessPdf";
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query.trim())}&limit=${limit}&fields=${fields}`;
 
+  const apiKey = (await getSecret("SEMANTIC_SCHOLAR_API_KEY")) || process.env.SEMANTIC_SCHOLAR_API_KEY;
   const headers = {};
-  if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
-    headers["x-api-key"] = process.env.SEMANTIC_SCHOLAR_API_KEY;
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
   }
 
   const res = await safeFetchJson(url, { headers }, timeoutMs);

@@ -1,8 +1,9 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { createNormalizedPaper } from "./provider.contract.js";
+import { getSecret } from "../../../services/config.service.js";
 
 export async function searchCore(query, { limit = 10, timeoutMs = 8000 } = {}) {
-  const apiKey = process.env.CORE_API_KEY;
+  const apiKey = (await getSecret("CORE_API_KEY")) || process.env.CORE_API_KEY;
   if (!apiKey || !query || !query.trim()) {
     return [];
   }

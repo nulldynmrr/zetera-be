@@ -1,8 +1,9 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { normalizeDoi } from "../../../lib/merge-deduplicate.js";
+import { getSecret } from "../../../services/config.service.js";
 
 export async function resolveUnpaywallPdf(doi, { email, timeoutMs = 6000 } = {}) {
-  const politeEmail = email || process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
+  const politeEmail = email || (await getSecret("ACADEMIC_POLITE_EMAIL")) || process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
   const cleanDoi = normalizeDoi(doi);
   if (!cleanDoi) {
     return { isOa: false, pdfUrl: null, oaUrl: null };

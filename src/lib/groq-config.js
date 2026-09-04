@@ -1,7 +1,14 @@
 import Groq from "groq-sdk";
+import { getSecret } from "../services/config.service.js";
 
-export function getGroqClient() {
-  const apiKey = process.env.GROQ_API_KEY || "";
+export async function resolveGroqApiKey() {
+  const dbKey = (await getSecret("GROQ_API_KEY")) || (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI"));
+  if (dbKey && !dbKey.startsWith("gsk_demo")) return dbKey;
+  return process.env.GROQ_API_KEY || "";
+}
+
+export async function getGroqClient(customKey) {
+  const apiKey = customKey || (await resolveGroqApiKey());
   if (!apiKey || apiKey.startsWith("gsk_demo") || apiKey === "gsk_your_groq_api_key_here") {
     return null;
   }
@@ -13,8 +20,9 @@ export async function getGroqChatCompletion({
   model = "llama-3.3-70b-versatile",
   temperature = 0.2,
   maxTokens = 3500,
+  apiKey,
 }) {
-  const client = getGroqClient();
+  const client = await getGroqClient(apiKey);
   if (!client) throw new Error("Groq API Key tidak ditemukan.");
   return client.chat.completions.create({
     messages,

@@ -138,9 +138,16 @@ export const DEFAULT_KEY_PRESETS = [
     isSecret: true,
   },
   {
+    key: "GROQ_API_KEY_SCREENING",
+    label: "Groq (AI Screening & Relevansi)",
+    desc: "Digunakan khusus untuk screening otomatis jurnal, ekstraksi metodologi, dan penilaian kelayakan",
+    defaultValue: "",
+    isSecret: true,
+  },
+  {
     key: "GROQ_API_KEY_FRAMEWORK_CROSS_CHECK_JURNAL",
-    label: "Groq (Cross-Check & Screening)",
-    desc: "Digunakan untuk AI Screening dan telaah silang intisari artikel jurnal",
+    label: "Groq (Cross-Check & Telaah Silang Jurnal)",
+    desc: "Digunakan untuk validasi silang bukti empiris dan intisari artikel jurnal",
     defaultValue: "",
     isSecret: true,
   },
@@ -154,7 +161,42 @@ export const DEFAULT_KEY_PRESETS = [
   {
     key: "GROQ_API_KEY",
     label: "Groq (Master Fallback API Key)",
-    desc: "Kunci API fallback utama untuk semua fitur Groq",
+    desc: "Kunci API fallback utama untuk seluruh fitur Groq (Proposal AI Co-Writer, Outline Suggest, Screening)",
+    defaultValue: "",
+    isSecret: true,
+  },
+  {
+    key: "ACADEMIC_POLITE_EMAIL",
+    label: "Email Polite Pool Akademik",
+    desc: "Email kontak untuk OpenAlex, Crossref, Unpaywall & Retraction Watch agar mendapat kuota API lebih tinggi",
+    defaultValue: "admin@zetera.id",
+    isSecret: false,
+  },
+  {
+    key: "MINERU_PATH",
+    label: "Path Binary MinerU Parser (Opsional)",
+    desc: "Path kustom ke executable mineru CLI (contoh: C:\\Users\\...\\mineru.exe). Kosongkan jika ingin auto-detect atau gunakan parser internal",
+    defaultValue: "",
+    isSecret: false,
+  },
+  {
+    key: "GROBID_URL",
+    label: "GROBID Server URL (Opsional)",
+    desc: "URL instance GROBID parser jurnal jika dijalankan via Docker (contoh: http://localhost:8070)",
+    defaultValue: "http://localhost:8070",
+    isSecret: false,
+  },
+  {
+    key: "SEMANTIC_SCHOLAR_API_KEY",
+    label: "Semantic Scholar API Key (Opsional)",
+    desc: "Kunci API resmi Semantic Scholar untuk menaikkan rate-limit pencarian jurnal",
+    defaultValue: "",
+    isSecret: true,
+  },
+  {
+    key: "CORE_API_KEY",
+    label: "CORE Academic API Key (Opsional)",
+    desc: "Kunci API repositori CORE UK untuk pencarian open access",
     defaultValue: "",
     isSecret: true,
   },
@@ -222,13 +264,17 @@ export async function getKeyPresets() {
 }
 
 /**
- * Inisialisasi seeding otomatis API key dari .env ke Database Terenkripsi saat server boot
+ * Inisialisasi seeding otomatis API key dari .env / default ke Database Terenkripsi saat server boot
  */
 export async function initDefaultSecrets() {
   const keysToSync = [
     {
       key: "GROQ_API_KEY_FRAMEWORK_RELASI",
       desc: "API Key Groq untuk rekomendasi relasi cerdas antar node",
+    },
+    {
+      key: "GROQ_API_KEY_SCREENING",
+      desc: "API Key Groq untuk screening otomatis dan analisis relevansi jurnal",
     },
     {
       key: "GROQ_API_KEY_FRAMEWORK_CROSS_CHECK_JURNAL",
@@ -241,6 +287,26 @@ export async function initDefaultSecrets() {
     {
       key: "GROQ_API_KEY",
       desc: "Master fallback API key Groq",
+    },
+    {
+      key: "ACADEMIC_POLITE_EMAIL",
+      desc: "Email polite pool untuk OpenAlex, Crossref, Unpaywall & Retraction Watch",
+    },
+    {
+      key: "MINERU_PATH",
+      desc: "Path binary mineru CLI jika menggunakan instalasi kustom",
+    },
+    {
+      key: "GROBID_URL",
+      desc: "URL instance GROBID parser jurnal",
+    },
+    {
+      key: "SEMANTIC_SCHOLAR_API_KEY",
+      desc: "API key Semantic Scholar untuk peningkatan kuota",
+    },
+    {
+      key: "CORE_API_KEY",
+      desc: "API key CORE repository",
     },
     {
       key: "MAIAROUTER_API_KEY",
@@ -270,7 +336,7 @@ export async function initDefaultSecrets() {
   for (const item of keysToSync) {
     try {
       const existing = await prisma.systemConfig.findUnique({ where: { key: item.key } });
-      const envVal = process.env[item.key] || process.env.GROQ_API_KEY_FRAMEWORK_RELASI || process.env.GROQ_API_KEY;
+      const envVal = process.env[item.key] || (item.key.startsWith("GROQ_") ? process.env.GROQ_API_KEY : "");
       
       if (!existing && envVal) {
         await setSecret(item.key, envVal, item.desc);

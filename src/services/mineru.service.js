@@ -3,10 +3,14 @@ import fs from "fs";
 import path from "path";
 import util from "util";
 import { sanitizeAcademicText } from "../lib/academic-cleaner.js";
+import { getSecret } from "./config.service.js";
 
 const execPromise = util.promisify(exec);
 
-function getMineruCmd() {
+async function getMineruCmd() {
+  const dbPath = await getSecret("MINERU_PATH");
+  if (dbPath) return `"${dbPath}"`;
+
   if (process.env.MINERU_PATH) return `"${process.env.MINERU_PATH}"`;
 
   if (process.platform === "win32") {
@@ -47,7 +51,7 @@ export async function extractWithMinerU(filePath) {
     return { success: false, error: "File tidak ditemukan" };
   }
 
-  const mineruBin = getMineruCmd();
+  const mineruBin = await getMineruCmd();
   if (!mineruBin) {
     // Graceful skip — tidak menunda waktu eksekusi
     return { success: false, error: "MinerU CLI tidak terpasang di host ini. Fallback ke ekstraksi terstruktur standar." };

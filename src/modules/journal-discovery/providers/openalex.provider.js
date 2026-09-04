@@ -1,17 +1,15 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { createNormalizedPaper } from "./provider.contract.js";
+import { getSecret } from "../../../services/config.service.js";
 
 function reconstructAbstract(invertedIndex) {
   if (!invertedIndex || typeof invertedIndex !== "object") return null;
   const wordEntries = [];
   for (const [word, positions] of Object.entries(invertedIndex)) {
     if (Array.isArray(positions)) {
-      for (const pos of positions) {
-        wordEntries.push({ word, pos });
-      }
+      positions.forEach((pos) => wordEntries.push({ word, pos }));
     }
   }
-  if (wordEntries.length === 0) return null;
   wordEntries.sort((a, b) => a.pos - b.pos);
   return wordEntries.map((item) => item.word).join(" ");
 }
@@ -19,7 +17,7 @@ function reconstructAbstract(invertedIndex) {
 export async function searchOpenAlex(query, { limit = 10, timeoutMs = 8000 } = {}) {
   if (!query || !query.trim()) return [];
 
-  const email = process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
+  const email = (await getSecret("ACADEMIC_POLITE_EMAIL")) || process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
   const url = `https://api.openalex.org/works?search=${encodeURIComponent(query.trim())}&per-page=${limit}&mailto=${email}`;
   const res = await safeFetchJson(url, {}, timeoutMs);
 

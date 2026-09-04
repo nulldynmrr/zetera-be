@@ -1,10 +1,11 @@
 import { safeFetchJson } from "../../../lib/http-fanout.js";
 import { createNormalizedPaper } from "./provider.contract.js";
+import { getSecret } from "../../../services/config.service.js";
 
 export async function searchCrossref(query, { limit = 8, timeoutMs = 8000 } = {}) {
   if (!query || !query.trim()) return [];
 
-  const email = process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
+  const email = (await getSecret("ACADEMIC_POLITE_EMAIL")) || process.env.ACADEMIC_POLITE_EMAIL || "admin@zetera.id";
   const url = `https://api.crossref.org/works?query=${encodeURIComponent(query.trim())}&rows=${limit}&mailto=${email}`;
   const res = await safeFetchJson(url, { headers: { "User-Agent": `Zetera/1.0 (mailto:${email})` } }, timeoutMs);
 
