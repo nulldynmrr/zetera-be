@@ -552,6 +552,7 @@ enum JournalSourceProvider {
   PUBMED
   ARXIV
   CROSSREF
+  DOAJ
   UPLOAD
   MANUAL
 }

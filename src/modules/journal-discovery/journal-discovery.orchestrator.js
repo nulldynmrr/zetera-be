@@ -145,6 +145,7 @@ export async function importCandidate({ projectId, userId, candidate }) {
     "PUBMED",
     "ARXIV",
     "CROSSREF",
+    "DOAJ",
     "UPLOAD",
     "MANUAL",
   ];

@@ -8,6 +8,7 @@ import { getGroqChatCompletion, GROQ_MODELS, parseJsonFromText } from "../lib/gr
 import { generateFrameworkFromJournals } from "./framework.service.js";
 import { buildMemoryContext, updateWriterDecisions } from "./memory.service.js";
 import { getSkillPrompt } from "./prompt.service.js";
+import { formatBibliography, formatInTextCitation } from "../lib/citation-engine.js";
 import {
   Document,
   Packer,
@@ -241,6 +242,7 @@ export async function generateAcademicProposal(projectId, userId, options = {}) 
   const dbSkillPrompt = await getSkillPrompt("PROPOSAL_FULL_SYNTHESIS_SYSTEM", {
     TITLE: project.title,
     FIELD: project.field || project.prodi || "Akademik",
+    CITATION_STYLE: citationStyle,
   });
 
   const systemPrompt = dbSkillPrompt?.systemPrompt || `## PERAN
@@ -251,7 +253,7 @@ Tulisan Anda mengikuti kaidah penulisan jurnal ilmiah terindeks SINTA, bukan ter
 ## KARAKTERISTIK GAYA BAHASA YANG HARUS DIPAKAI:
 1. Bahasa baku sesuai PUEBI / EYD V — tanpa singkatan informal atau kata tidak baku.
 2. Kalimat pasif proporsional — memakai konstruksi pasif ilmiah ("dilakukan", "ditemukan", "diperoleh", "dianalisis", "diukur").
-3. Kutipan teks model APA 7th (Penulis, Tahun) atau IEEE [1], [2], [3] yang merujuk langsung ke DAFTAR JURNAL REFERENSI EMPIRIS yang diberikan.
+3. Kutipan teks WAJIB mengikuti format gaya sitasi proyek (${citationStyle}): ${citationStyle === "IEEE" || citationStyle === "VANCOUVER" ? "menggunakan nomor rujukan numerik [1], [2], [3]" : "menggunakan format nama dan tahun (Penulis, Tahun)"} yang merujuk langsung ke DAFTAR JURNAL REFERENSI EMPIRIS yang diberikan.
 4. Kepadatan argumen — setiap paragraf memiliki satu ide pokok yang dikembangkan dengan bukti data dan telaah rujukan nyata.
 5. Variasi panjang kalimat — padukan kalimat kompleks bertingkat dengan kalimat pendek tegas agar ritme mengalir alami.
 6. Terminologi disiplin ilmu yang presisi sesuai topik ("${project.title}").
@@ -482,7 +484,7 @@ FORMAT OUTPUT WAJIB JSON MURNI TANPA WRAPPER MARKDOWN:
         teknikPengumpulanData: item3_3 || "",
         teknikAnalisisData: item3_4 || "",
       },
-      daftarPustaka: literatureMatrix.map(formatApa7thCitation),
+      daftarPustaka: literatureMatrix.map((j, idx) => formatBibliography(j, citationStyle, idx + 1)),
       literatureMatrix,
     },
   };
@@ -760,13 +762,19 @@ export async function exportProposalDocxFile(projectId, userId) {
     });
 
   // ── DAFTAR PUSTAKA ──
+  const docxCitationStyle = (proposalDataFromDb.project?.citationStyle || "IEEE").toUpperCase();
+  const bibliographyItems = (data.daftarPustaka && data.daftarPustaka.length > 0)
+    ? data.daftarPustaka
+    : (data.literatureMatrix || []).map((j, idx) => formatBibliography(j, docxCitationStyle, idx + 1));
+  const isNumericCitation = docxCitationStyle === "IEEE" || docxCitationStyle === "VANCOUVER";
+
   docChildren.push(
     createHeading1("DAFTAR PUSTAKA", true),
-    ...(data.daftarPustaka || []).map((p) => {
+    ...bibliographyItems.map((p) => {
       return new Paragraph({
         children: [new TextRun({ text: p, size: 24, font: "Times New Roman" })],
         alignment: AlignmentType.JUSTIFIED,
-        indent: { left: 720, hanging: 720 }, // APA 7th Hanging indent
+        indent: isNumericCitation ? { left: 0 } : { left: 720, hanging: 720 }, // APA/Harvard hanging indent
         spacing: { line: 360, before: 60, after: 120 },
       });
     })

@@ -7,3 +7,4 @@ export * from "./arxiv.provider.js";
 export * from "./crossref.provider.js";
 export * from "./unpaywall.provider.js";
 export * from "./retraction-watch.provider.js";
+export * from "./doaj.provider.js";

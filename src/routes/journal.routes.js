@@ -50,6 +50,7 @@ router.delete("/purge-rejected", journalController.purgeRejected);
 router.use("/", discoveryRoutes);
 
 router.get("/:journalId", journalController.getJournal);
+router.get("/:journalId/pdf-proxy", journalController.streamPdfProxy);
 router.patch("/:journalId", journalController.updateJournal);
 router.delete("/:journalId", journalController.deleteJournal);
 

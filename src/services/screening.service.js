@@ -372,8 +372,8 @@ Catatan: Tipe node yang valid HANYA: "VARIABLE", "CONCEPT", "METHOD", "THEORY", 
               projectId,
               label: v.label,
               type: normalizeNodeType(v.type),
-              description: v.description || "Diekstrak otomatis dari jurnal " + journal.title,
-              status: "SUPPORTED",
+              description: v.description || `Disarankan dari hasil telaah artikel "${journal.title}" (memerlukan verifikasi bukti empiris & halaman).`,
+              status: "NEEDS_REVIEW",
               positionX: posX,
               positionY: posY,
             },
@@ -382,18 +382,9 @@ Catatan: Tipe node yang valid HANYA: "VARIABLE", "CONCEPT", "METHOD", "THEORY", 
           existingLabels.add(v.label.toLowerCase());
           createdNodes.push(newNode);
           posX += 220;
-
-          await prisma.journalNodeMapping.create({
-            data: {
-              journalId: journal.id,
-              nodeId: newNode.id,
-              evidenceType: "SUPPORTS",
-              quote: `Bukti empiris artikel "${journal.title}" mendukung variabel ${v.label}.`,
-              sourcePage: 1,
-              sourceDoi: journal.doi || null,
-              confidence: 0.95,
-            },
-          });
+          // Catatan integritas ilmiah (Blueprint 012):
+          // Bukti empiris (quote + pageNumber asli) TIDAK BOLEH dibuat otomatis dengan template sintetis & page=1.
+          // Bukti harus dipetakan dari teks nyata oleh pengguna atau ekstraksi koordinat PDF.
         }
       }
     } catch (e) {

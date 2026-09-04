@@ -192,3 +192,14 @@ export async function verifyDoi(req, res, next) {
     next(err);
   }
 }
+
+// ── Overhaul v2: Single Source of Truth PDF Proxy ─────────
+export async function streamPdfProxy(req, res, next) {
+  try {
+    const { projectId, journalId } = req.params;
+    const userId = req.user.sub;
+    await journalService.streamJournalPdf(projectId, journalId, userId, res);
+  } catch (err) {
+    next(err);
+  }
+}

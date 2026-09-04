@@ -1159,3 +1159,114 @@ export async function aiCrosscheckJournal(projectId, journalId, userId) {
     newMappings: createdMappings,
   };
 }
+
+// ── Overhaul v2: Single Source of Truth PDF Streaming & Caching Proxy ──
+/**
+ * Stream PDF jurnal dari storage lokal.
+ * Jika belum ada di disk tapi openAccessPdfUrl tersedia:
+ * fetch sekali dari provider, simpan ke uploads/, update filePath di DB, lalu stream.
+ */
+export async function streamJournalPdf(projectId, journalId, userId, res) {
+  const journal = await prisma.journal.findUnique({
+    where: { id: journalId },
+    include: { project: true },
+  });
+
+  if (!journal || journal.project.userId !== userId) {
+    const err = new Error("Jurnal tidak ditemukan atau akses ditolak");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // 1. Coba baca dari storage lokal
+  let resolvedPath = journal.filePath ? path.resolve(journal.filePath) : null;
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    if (journal.pdfStoragePath) {
+      const alt = path.resolve(journal.pdfStoragePath);
+      if (fs.existsSync(alt)) resolvedPath = alt;
+    }
+    if ((!resolvedPath || !fs.existsSync(resolvedPath)) && journal.url && journal.url.startsWith("/uploads/")) {
+      const alt = path.resolve("." + journal.url);
+      if (fs.existsSync(alt)) resolvedPath = alt;
+    }
+  }
+
+  if (resolvedPath && fs.existsSync(resolvedPath)) {
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent((journal.title || "paper").slice(0, 50))}.pdf"`);
+    return fs.createReadStream(resolvedPath).pipe(res);
+  }
+
+  // 2. Jika lokal belum ada tapi openAccessPdfUrl ada -> fetch & cache
+  const targetPdfUrl = journal.openAccessPdfUrl || (journal.url && journal.url.toLowerCase().endsWith(".pdf") ? journal.url : null);
+  if (targetPdfUrl) {
+    console.log(`[streamJournalPdf] Fetching & caching OA PDF for journal ${journalId} from: ${targetPdfUrl}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const fetchResp = await fetch(targetPdfUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "application/pdf,*/*",
+        },
+        signal: controller.signal,
+        redirect: "follow",
+      });
+      clearTimeout(timeoutId);
+
+      if (!fetchResp.ok) {
+        const err = new Error(`Gagal mengunduh PDF open-access (status: ${fetchResp.status})`);
+        err.statusCode = 502;
+        throw err;
+      }
+
+      const arrayBuf = await fetchResp.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+
+      // Verifikasi minimal bahwa buffer bukan halaman web HTML error
+      const isPdfHeader = buffer.slice(0, 5).toString().startsWith("%PDF");
+      const isPdfContentType = (fetchResp.headers.get("content-type") || "").toLowerCase().includes("pdf");
+
+      if (!isPdfHeader && !isPdfContentType && buffer.slice(0, 50).toString().includes("<html")) {
+        const err = new Error("Tautan open access mengembalikan halaman HTML, bukan file PDF");
+        err.statusCode = 422;
+        throw err;
+      }
+
+      const uploadDir = path.resolve("uploads");
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      const filename = `oa-${journal.id}-${Date.now()}.pdf`;
+      const savePath = path.join(uploadDir, filename);
+      fs.writeFileSync(savePath, buffer);
+
+      const relativeSavedPath = `uploads/${filename}`;
+      await prisma.journal.update({
+        where: { id: journal.id },
+        data: {
+          filePath: relativeSavedPath,
+          pdfStoragePath: relativeSavedPath,
+          hasFullPdf: true,
+          fileSize: buffer.length,
+        },
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent((journal.title || "paper").slice(0, 50))}.pdf"`);
+      return res.end(buffer);
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      console.warn(`[streamJournalPdf] Error fetching OA PDF: ${fetchErr.message}`);
+      const err = new Error(`Tidak dapat mengunduh PDF open access: ${fetchErr.message}`);
+      err.statusCode = 502;
+      throw err;
+    }
+  }
+
+  const err = new Error("PDF tidak tersedia untuk jurnal ini. Sumber dokumen belum memiliki file PDF lokal maupun tautan Open Access.");
+  err.statusCode = 404;
+  throw err;
+}

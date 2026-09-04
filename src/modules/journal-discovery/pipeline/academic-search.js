@@ -6,6 +6,7 @@ import {
   searchCrossref,
   searchPubMed,
   searchArxiv,
+  searchDoaj,
 } from "../providers/index.js";
 
 export async function runAcademicSearch({ query, expandedQuery, domainHint = "GENERAL", limitPerProvider = 8, timeoutMs = 8000 }) {
@@ -16,6 +17,7 @@ export async function runAcademicSearch({ query, expandedQuery, domainHint = "GE
     () => searchSemanticScholar(searchQuery, { limit: limitPerProvider, timeoutMs }),
     () => searchCore(searchQuery, { limit: limitPerProvider, timeoutMs }),
     () => searchCrossref(searchQuery, { limit: limitPerProvider, timeoutMs }),
+    () => searchDoaj(searchQuery, { limit: limitPerProvider, timeoutMs }),
   ];
 
   // Domain routing

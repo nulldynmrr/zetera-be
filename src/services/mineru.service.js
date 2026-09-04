@@ -7,26 +7,52 @@ import { sanitizeAcademicText } from "../lib/academic-cleaner.js";
 const execPromise = util.promisify(exec);
 
 function getMineruCmd() {
-  const userProfile = process.env.USERPROFILE || "";
-  const appData = process.env.APPDATA || "";
-  const localCandidates = [
-    path.join(appData, "Python", "Python311", "Scripts", "mineru.exe"),
-    path.join(userProfile, "AppData", "Roaming", "Python", "Python311", "Scripts", "mineru.exe"),
-    path.join(userProfile, "AppData", "Local", "Programs", "Python", "Python311", "Scripts", "mineru.exe"),
-  ];
+  if (process.env.MINERU_PATH) return `"${process.env.MINERU_PATH}"`;
 
-  for (const p of localCandidates) {
+  if (process.platform === "win32") {
+    const userProfile = process.env.USERPROFILE || "";
+    const appData = process.env.APPDATA || "";
+    const localCandidates = [
+      path.join(appData, "Python", "Python311", "Scripts", "mineru.exe"),
+      path.join(userProfile, "AppData", "Roaming", "Python", "Python311", "Scripts", "mineru.exe"),
+      path.join(userProfile, "AppData", "Local", "Programs", "Python", "Python311", "Scripts", "mineru.exe"),
+    ];
+
+    for (const p of localCandidates) {
+      if (fs.existsSync(p)) return `"${p}"`;
+    }
+    return null;
+  }
+
+  // Linux / Docker / macOS
+  const linuxCandidates = [
+    "/usr/local/bin/mineru",
+    "/usr/bin/mineru",
+    "/opt/conda/bin/mineru",
+  ];
+  for (const p of linuxCandidates) {
     if (fs.existsSync(p)) return `"${p}"`;
   }
+
   return "mineru";
 }
 
 /**
- * Service Ekstraksi PDF menggunakan MinerU (OpenDataLab)
+ * Service Ekstraksi PDF menggunakan MinerU (OpenDataLab) / GROBID bridge
  * Menghasilkan JSON terstruktur berisi semua Bab, Sub-bab, Tabel HTML, Formula LaTeX, & Paragraf per Halaman.
  */
 export async function extractWithMinerU(filePath) {
   const absolutePath = path.resolve(filePath);
+  if (!fs.existsSync(absolutePath)) {
+    return { success: false, error: "File tidak ditemukan" };
+  }
+
+  const mineruBin = getMineruCmd();
+  if (!mineruBin) {
+    // Graceful skip — tidak menunda waktu eksekusi
+    return { success: false, error: "MinerU CLI tidak terpasang di host ini. Fallback ke ekstraksi terstruktur standar." };
+  }
+
   const outputDir = path.join(path.dirname(absolutePath), `mineru_${Date.now()}`);
 
   if (!fs.existsSync(outputDir)) {
@@ -34,7 +60,6 @@ export async function extractWithMinerU(filePath) {
   }
 
   try {
-    const mineruBin = getMineruCmd();
     // 1. Eksekusi CLI mineru dengan backend pipeline (CPU/GPU) dengan timeout aman
     const cmd = `${mineruBin} -p "${absolutePath}" -o "${outputDir}" -b pipeline`;
     console.log(`[MinerU] Menjalankan ekstraksi dokumen: ${cmd}`);
