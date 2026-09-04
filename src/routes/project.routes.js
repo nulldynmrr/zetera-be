@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as projectController from "../controllers/project.controller.js";
 import * as outlineController from "../controllers/outline.controller.js";
+import * as templateController from "../controllers/template.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 
 const router = Router();
@@ -15,6 +16,10 @@ router.get("/:id", projectController.getProject);
 router.patch("/:id", projectController.updateProject);
 router.delete("/:id", projectController.deleteProject);
 router.post("/:id/sync-framework", projectController.syncProposalToFramework);
+
+// ── PRD 013: Template Switching routes ──
+router.post("/:projectId/template/preview-switch", templateController.previewSwitchTemplate);
+router.post("/:projectId/template/switch", templateController.commitSwitchTemplate);
 
 // ── Overhaul v2: Custom BAB / Daftar Isi routes ──
 router.get("/:id/custom-outline", projectController.getCustomOutline);

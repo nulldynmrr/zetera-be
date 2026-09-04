@@ -590,6 +590,9 @@ export async function addEvidenceToItem(projectId, userId, itemId, evidenceData)
     abstract: evidenceData.abstract || null,
     addedAt: new Date().toISOString(),
     sourceType: evidenceData.sourceType || "MANUAL", // MANUAL | OPENALEX | SEMANTIC_SCHOLAR
+    pageNumber: evidenceData.pageNumber || evidenceData.page || null,
+    quote: evidenceData.quote || null,
+    journalId: evidenceData.journalId || null,
   };
 
   const updatedEvidence = [...existingEvidence, newEvidence];

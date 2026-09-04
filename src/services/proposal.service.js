@@ -53,6 +53,12 @@ export async function getProposalData(projectId, userId) {
           nodeMappings: true,
         },
       },
+      template: {
+        include: {
+          sections: { orderBy: { order: "asc" } },
+          variables: { orderBy: { order: "asc" } },
+        },
+      },
     },
   });
 
@@ -63,9 +69,11 @@ export async function getProposalData(projectId, userId) {
   }
 
   // Ambil profil mahasiswa & kampus dari UserProfile
-  const userProfile = await prisma.userProfile.findUnique({
-    where: { userId },
-  });
+  const userProfile = userId
+    ? await prisma.userProfile.findUnique({
+        where: { userId },
+      })
+    : null;
 
   // Ambil Outline Blueprint & Evidence yang sudah dikumpulkan pengguna
   const outlineItems = await prisma.researchOutlineItem.findMany({
@@ -181,12 +189,24 @@ export async function saveProposalData(projectId, userId, draftData = {}) {
     },
   };
 
+  const updateData = {
+    commonNarrative: updatedNarrative,
+    customOutline: draftData.customSubChapters || project.customOutline,
+  };
+
+  if (draftData.variableValues) {
+    updateData.variableValues = draftData.variableValues;
+  }
+  if (draftData.templateId) {
+    updateData.templateId = draftData.templateId;
+  }
+  if (draftData.coverData?.logoUrl) {
+    updateData.logoUrl = draftData.coverData.logoUrl;
+  }
+
   const updatedProject = await prisma.researchProject.update({
     where: { id: projectId },
-    data: {
-      commonNarrative: updatedNarrative,
-      customOutline: draftData.customSubChapters || project.customOutline,
-    },
+    data: updateData,
   });
 
   return {
@@ -859,10 +879,37 @@ export async function exportProposalLatexZipFile(projectId, userId, templateType
         .replace(/\\author\{.*?\}/, `\\author{${escapeLatex(data.cover.author)}}`)
         .replace(/\\newcommand\{\\NIM\}\{.*?\}/, `\\newcommand{\\NIM}{${escapeLatex(data.cover.nim)}}`)
         .replace(/\\newcommand\{\\Prodi\}\{.*?\}/, `\\newcommand{\\Prodi}{${escapeLatex(data.cover.prodi)}}`);
+
+      if (!mainContent.includes("\\input{zetera-vars}")) {
+        mainContent = mainContent.replace("\\input{Cover}", "\\input{zetera-vars}\n\\input{Cover}");
+      }
     } else {
-      mainContent = `\\documentclass[a4paper,12pt,oneside]{book}\n\\title{${escapeLatex(data.cover.title)}}\n\\author{${escapeLatex(data.cover.author)}}\n\\begin{document}\n\\input{Cover}\n\\input{Pendahuluan}\n\\input{Kajian-Pustaka}\n\\input{Metodologi}\n\\bibliography{References}\n\\end{document}`;
+      mainContent = `\\documentclass[a4paper,12pt,oneside]{book}\n\\input{zetera-vars}\n\\begin{document}\n\\input{Cover}\n\\input{Pendahuluan}\n\\input{Kajian-Pustaka}\n\\input{Metodologi}\n\\bibliography{References}\n\\end{document}`;
     }
     zip.file("main.tex", mainContent);
+
+    // Dynamic zetera-vars.tex generator (PRD 013 §7.1)
+    const varsContent = `%% ====================================================================
+%% ZETERA ACADEMIC ENGINE - AUTO GENERATED VARIABLES (DO NOT EDIT MANUALLY)
+%% Generated: ${new Date().toISOString()} | Project ID: ${projectId}
+%% ====================================================================
+
+\\title{${escapeLatex(data.cover.title)}}\\let\\Title\\@title
+\\newcommand{\\EngTitle}{${escapeLatex(data.cover.engTitle || data.cover.title)}}
+\\author{${escapeLatex(data.cover.author)}}\\let\\Author\\@author
+\\newcommand{\\NIM}{${escapeLatex(data.cover.nim)}}
+\\newcommand{\\Prodi}{${escapeLatex(data.cover.prodi)}}
+\\newcommand{\\Fakultas}{${escapeLatex(data.cover.fakultas)}}
+\\newcommand{\\Universitas}{${escapeLatex(data.cover.universitas)}}
+\\newcommand{\\Date}{${escapeLatex(data.cover.year || new Date().getFullYear())}}
+\\newcommand{\\PembimbingSatu}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.pembimbing1 || data.approval?.pembimbing1 || "(Pembimbing 1)")}}
+\\newcommand{\\NIPPembimbingSatu}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.nipPembimbing1 || data.approval?.nipPembimbing1 || "-")}}
+\\newcommand{\\PembimbingDua}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.pembimbing2 || data.approval?.pembimbing2 || "(Pembimbing 2)")}}
+\\newcommand{\\NIPPembimbingDua}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.nipPembimbing2 || data.approval?.nipPembimbing2 || "-")}}
+\\newcommand{\\Kaprodi}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.kaprodi || data.approval?.kaprodi || "Dr. Erwin Budi Setiawan, S.Si., M.T.")}}
+\\newcommand{\\NIPKaprodi}{${escapeLatex(proposalDataFromDb.savedDraft?.approvalData?.nipKaprodi || data.approval?.nipKaprodi || "00760045")}}
+`;
+    zip.file("zetera-vars.tex", varsContent);
 
     // 2. Cover.tex
     let coverContent = "";
@@ -972,13 +1019,53 @@ ${escapeLatex(data.bab3.teknikAnalisisData)}
 
     zip.file("References.bib", bibtexEntries);
 
-    // Copy berkas statis (Logo Tel-U, Lembar Persetujuan, Abstrak) jika ada
-    const otherFiles = ["Lembar-Persetujuan.tex", "Abstrak-Indo.tex", "Lampiran.tex", "Tel-U-Logo.png"];
+    // Copy berkas statis (Lembar Persetujuan, Abstrak, Lampiran) jika ada
+    const otherFiles = ["Lembar-Persetujuan.tex", "Abstrak-Indo.tex", "Lampiran.tex"];
     for (const f of otherFiles) {
       const fPath = path.join(templateDir, f);
       if (fs.existsSync(fPath)) {
         const fileData = fs.readFileSync(fPath);
         zip.file(f, fileData);
+      }
+    }
+
+    // Dynamic In-Place Logo Swap (PRD 013 §7.1 & §12)
+    let logoSwapped = false;
+    const customLogo =
+      proposalDataFromDb.project?.variableValues?.LOGO ||
+      proposalDataFromDb.project?.logoUrl ||
+      proposalDataFromDb.profile?.logoUrl;
+
+    if (customLogo) {
+      try {
+        if (typeof customLogo === "string" && customLogo.startsWith("data:image/")) {
+          const b64Data = customLogo.replace(/^data:image\/\w+;base64,/, "");
+          zip.file("Tel-U-Logo.png", Buffer.from(b64Data, "base64"));
+          logoSwapped = true;
+        } else if (typeof customLogo === "string" && (customLogo.startsWith("http://") || customLogo.startsWith("https://"))) {
+          const res = await fetch(customLogo);
+          if (res.ok) {
+            const ab = await res.arrayBuffer();
+            zip.file("Tel-U-Logo.png", Buffer.from(ab));
+            logoSwapped = true;
+          }
+        } else if (typeof customLogo === "string") {
+          const cleanPath = customLogo.replace(/^[/\\]+/, "");
+          const absPath = path.resolve(cleanPath);
+          if (fs.existsSync(absPath)) {
+            zip.file("Tel-U-Logo.png", fs.readFileSync(absPath));
+            logoSwapped = true;
+          }
+        }
+      } catch (err) {
+        console.warn("Logo swap fallback warning:", err.message);
+      }
+    }
+
+    if (!logoSwapped) {
+      const defaultLogoPath = path.join(templateDir, "Tel-U-Logo.png");
+      if (fs.existsSync(defaultLogoPath)) {
+        zip.file("Tel-U-Logo.png", fs.readFileSync(defaultLogoPath));
       }
     }
   } else {

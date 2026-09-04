@@ -68,11 +68,15 @@ model ResearchProject {
   commonNarrative Json?          // Background, purpose, scope
   customOutline   Json?          // Dynamic recommended/custom sub-chapters
   citationStyle   String?        @db.VarChar(50)  // APA | IEEE | MLA | HARVARD | VANCOUVER | CHICAGO
+  templateId      String?
+  templateVersion Int?           @default(1)
+  variableValues  Json?          // { "NAMA_MAHASISWA": "...", "NIM": "...", "LOGO": "<url>" }
   status          ProjectStatus  @default(ACTIVE)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template       ProposalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   frameworkNodes FrameworkNode[]
   frameworkEdges FrameworkEdge[]
   journals       Journal[]
@@ -197,19 +201,76 @@ model JournalNodeMapping {
 // Masalah 3: system-managed + user-cloneable templates
 // ownerId null = system default template
 model ProposalTemplate {
-  id              String   @id @default(cuid())
-  ownerId         String?  @db.VarChar(50) // null = system default
-  name            String   @db.VarChar(200)
-  sourceFaculty   String?  @db.VarChar(100)
-  isDefault       Boolean  @default(false)
+  id              String         @id @default(cuid())
+  ownerId         String?        @db.VarChar(50) // null = system default
+  name            String         @db.VarChar(200)
+  description     String?        @db.Text
+  sourceFaculty   String?        @db.VarChar(100)
+  sourceCampus    String?        @db.VarChar(150)
+  formatType      TemplateFormat @default(LATEX)
+  status          TemplateStatus @default(DRAFT)
+  version         Int            @default(1)
+  isDefault       Boolean        @default(false)
+  packageAssetId  String?        @unique
   // Overhaul v2: Penomoran bertingkat konfigurable per institusi
-  numberingConfig Json?    // { bab, level2, level3, level4, level5, level6 }
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  numberingConfig Json?          // { bab, level2, level3, level4, level5, level6 }
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  sections ProposalTemplateSection[]
+  packageAsset    TemplatePackageAsset?   @relation(fields: [packageAssetId], references: [id], onDelete: SetNull)
+  sections        ProposalTemplateSection[]
+  variables       TemplateVariable[]
+  projects        ResearchProject[]
 
   @@map("proposal_templates")
+}
+
+enum TemplateFormat {
+  LATEX
+  DOCX
+}
+
+enum TemplateStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model TemplatePackageAsset {
+  id           String            @id @default(cuid())
+  storageKey   String            @db.VarChar(500)
+  originalName String            @db.VarChar(255)
+  mimeType     String            @db.VarChar(100)
+  checksum     String?           @db.VarChar(64)
+  uploadedBy   String            @db.VarChar(50)
+  createdAt    DateTime          @default(now())
+
+  template     ProposalTemplate?
+
+  @@map("template_package_assets")
+}
+
+model TemplateVariable {
+  id             String       @id @default(cuid())
+  templateId     String
+  key            String       @db.VarChar(100)
+  label          String       @db.VarChar(150)
+  varType        VariableType @default(TEXT)
+  required       Boolean      @default(true)
+  defaultValue   String?      @db.Text
+  defaultAssetId String?      @db.VarChar(255)
+  bindingKey     String       @db.VarChar(150)
+  order          Int          @default(0)
+
+  template       ProposalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, key])
+  @@map("template_variables")
+}
+
+enum VariableType {
+  TEXT
+  IMAGE
 }
 
 // ── Proposal Template Sections ────────────────────────
@@ -223,7 +284,8 @@ model ProposalTemplateSection {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  template ProposalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template     ProposalTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  outlineItems ResearchOutlineItem[]
 
   @@map("proposal_template_sections")
 }
@@ -236,23 +298,25 @@ enum UserRole {
 
 // ── Research Outline Items (Tahap 5: Research Blueprint) ────
 model ResearchOutlineItem {
-  id           String            @id @default(cuid())
-  projectId    String
-  itemId       String            @db.VarChar(20)  // "1.1.1", "2.3", dll
-  title        String            @db.VarChar(255)
-  bab          Int
-  depth        Int               @default(1)
-  order        Int               @default(0)
-  status       OutlineItemStatus @default(EMPTY)
-  researchTask Json?             // { what, why, how, searchQueries, targetEvidence, evidenceType }
-  evidence     Json?             // array of evidence objects
-  userNotes    String?           @db.Text
-  isLocked     Boolean           @default(false)
-  dependsOn    Json?             // array of itemId strings
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id                String            @id @default(cuid())
+  projectId         String
+  itemId            String            @db.VarChar(20)  // "1.1.1", "2.3", dll
+  title             String            @db.VarChar(255)
+  bab               Int
+  depth             Int               @default(1)
+  order             Int               @default(0)
+  status            OutlineItemStatus @default(EMPTY)
+  researchTask      Json?             // { what, why, how, searchQueries, targetEvidence, evidenceType }
+  evidence          Json?             // array of evidence objects
+  userNotes         String?           @db.Text
+  isLocked          Boolean           @default(false)
+  dependsOn         Json?             // array of itemId strings
+  templateSectionId String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  project ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         ResearchProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  templateSection ProposalTemplateSection? @relation(fields: [templateSectionId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, itemId])
   @@map("research_outline_items")
