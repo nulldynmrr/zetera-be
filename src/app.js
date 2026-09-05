@@ -59,6 +59,50 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // Serve static uploads
 app.use("/uploads", express.static(uploadDir));
 
+// PDF Proxy Endpoint for embedded split-screen viewing without X-Frame-Options or CORS blocks
+app.get("/api/proxy-pdf", async (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.status(400).send("Parameter URL wajib disertakan");
+
+  try {
+    const parsed = new URL(targetUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return res.status(400).send("Protokol URL tidak valid");
+    }
+
+    const response = await fetch(targetUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        Accept: "application/pdf,application/octet-stream,*/*",
+      },
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      return res
+        .status(response.status)
+        .send(`Gagal mengambil naskah PDF (${response.status}): ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "application/pdf";
+    if (contentType.toLowerCase().includes("text/html")) {
+      return res.status(415).send("URL target mengembalikan halaman web (HTML), bukan berkas PDF.");
+    }
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.removeHeader("X-Frame-Options");
+    res.removeHeader("Content-Security-Policy");
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error("PDF Proxy error:", err);
+    res.status(500).send(`Gagal memuat PDF: ${err.message}`);
+  }
+});
+
 // ── Routes ────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

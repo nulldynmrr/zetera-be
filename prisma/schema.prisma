@@ -82,6 +82,7 @@ model ResearchProject {
   journals       Journal[]
   outlineItems   ResearchOutlineItem[]
   memory         ProjectMemory?
+  citationEvidences JournalCitationEvidence[]
 
   @@map("research_projects")
 }
@@ -171,6 +172,7 @@ model Journal {
 
   project      ResearchProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   nodeMappings JournalNodeMapping[]
+  citationEvidences JournalCitationEvidence[]
 
   @@map("journals")
 }
@@ -195,6 +197,32 @@ model JournalNodeMapping {
   node    FrameworkNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 
   @@map("journal_node_mappings")
+}
+
+// ── Verified Citation Evidence (Bukti Kutipan Berpresisi Halaman) ──
+model JournalCitationEvidence {
+  id               String   @id @default(cuid())
+  journalId        String
+  projectId        String
+  pageNumber       Int      // Nomor halaman persis di dalam naskah PDF
+  sectionHeading   String?  @db.VarChar(255) // Bagian/Bab jurnal (misal: "Metode Penelitian", "Hasil")
+  verbatimQuote    String   @db.Text // Kutipan ASLI kata demi kata dari dokumen PDF
+  paraphrasedQuote String   @db.Text // Kutipan yang SUDAH DIPARAFRASE gaya akademis Indonesia baku
+  topicRelevance   String   @db.Text // Mengapa relevan dengan masalah / variabel user
+  citationCategory String   @default("LANDASAN_TEORI") @db.VarChar(50) // LATAR_BELAKANG | LANDASAN_TEORI | METODOLOGI | HASIL_PEMBAHASAN
+  journalName      String?  @db.VarChar(255) // Nama publikasi/jurnal
+  doi              String?  @db.VarChar(255) // DOI resmi
+  authors          String?  @db.VarChar(500)
+  year             Int?
+  paperTitle       String   @db.VarChar(500)
+  isApproved       Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  journal Journal         @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  project ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("journal_citation_evidences")
 }
 
 // ── Proposal Templates (Library) ─────────────────────

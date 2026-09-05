@@ -12,6 +12,7 @@ router.get("/", projectController.listProjects);
 router.post("/", projectController.createProject);
 router.post("/brainstorm-topics", projectController.brainstormTopics);
 router.post("/recommend-outline", projectController.recommendOutline);
+router.post("/refine-narrative", projectController.refineNarrative);
 router.get("/:id", projectController.getProject);
 router.patch("/:id", projectController.updateProject);
 router.delete("/:id", projectController.deleteProject);

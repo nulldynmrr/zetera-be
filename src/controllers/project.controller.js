@@ -54,8 +54,67 @@ export async function getProject(req, res, next) {
 export async function createProject(req, res, next) {
   try {
     const body = createProjectSchema.parse(req.body);
+
+    // Auto-refine dengan Groq jika latar belakang atau tujuan masih sangat pendek / ngasal (< 15 karakter)
+    const bg = body.commonNarrative?.background?.trim() || "";
+    const purp = body.commonNarrative?.purpose?.trim() || "";
+    if (bg.length < 15 || purp.length < 10) {
+      try {
+        const refined = await proposalFlowService.refineProposalNarrative({
+          title: body.title,
+          field: body.field || body.prodi,
+          approachType: body.approachType,
+          approachConfig: body.approachConfig,
+          currentBackground: bg,
+          currentPurpose: purp,
+          currentScope: body.commonNarrative?.scope || "",
+          userId: req.user.sub,
+        });
+        if (refined) {
+          body.commonNarrative = {
+            ...(body.commonNarrative || {}),
+            background: refined.background || bg,
+            purpose: refined.purpose || purp,
+            scope: refined.scope || body.commonNarrative?.scope || "",
+          };
+        }
+      } catch (refineErr) {
+        console.warn("Auto-refine narrative fallback on create:", refineErr.message);
+      }
+    }
+
     const project = await projectService.createProject(req.user.sub, body);
     res.status(201).json({ success: true, data: project });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── AI Refine Narasi Umum (Latar Belakang, Tujuan, Batasan) ──
+export async function refineNarrative(req, res, next) {
+  try {
+    const {
+      title,
+      field,
+      approachType,
+      approachConfig,
+      currentBackground,
+      currentPurpose,
+      currentScope,
+    } = req.body;
+
+    const refined = await proposalFlowService.refineProposalNarrative({
+      title,
+      field,
+      approachType,
+      approachConfig,
+      currentBackground,
+      currentPurpose,
+      currentScope,
+      userId: req.user?.sub,
+    });
+
+    res.status(200).json({ success: true, data: refined });
   } catch (err) {
     next(err);
   }
@@ -83,10 +142,11 @@ export async function deleteProject(req, res, next) {
 // ── AI Brainstorming Topik ──
 export async function brainstormTopics(req, res, next) {
   try {
-    const { minat, kataKunci, constraints, field } = req.body;
+    const { minat, kataKunci, masalahDitemukan, constraints, field } = req.body;
     const candidates = await proposalFlowService.brainstormTopics({
       minat,
       kataKunci,
+      masalahDitemukan,
       constraints,
       field,
       userId: req.user?.sub,

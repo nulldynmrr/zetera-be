@@ -133,13 +133,31 @@ export async function buildMemoryContext(projectId) {
   const mem = await getProjectMemory(projectId);
   const parts = [];
 
-  // 1. Literature Landscape (Jurnal MinerU yang terekstraksi)
-  if (mem.literatureLandscape && Array.isArray(mem.literatureLandscape) && mem.literatureLandscape.length > 0) {
-    const paperLines = mem.literatureLandscape
-      .slice(0, 5)
-      .map((j) => `  - [${j.year || "N/A"}] "${j.title}" (${j.authors || "Penulis"}) [Relevansi: ${j.relevanceScore || 0}%]`)
-      .join("\n");
-    parts.push(`LITERATURE LANDSCAPE (Jurnal Terekstraksi MinerU):\n${paperLines}`);
+  // 1. Literature Landscape & Bukti Kutipan Terverifikasi (Strict Provenance)
+  try {
+    const verifiedEvidences = await prisma.journalCitationEvidence.findMany({
+      where: { projectId, isApproved: true },
+      take: 8,
+      orderBy: [{ year: "desc" }, { pageNumber: "asc" }],
+    });
+
+    if (verifiedEvidences && verifiedEvidences.length > 0) {
+      const evLines = verifiedEvidences.map((ev) => {
+        const authYear = `${ev.authors ? ev.authors.split(",")[0] : "Penulis"} (${ev.year || "N/A"})`;
+        const doiStr = ev.doi ? ` [DOI: ${ev.doi}]` : "";
+        const pubStr = ev.journalName ? ` | ${ev.journalName}` : "";
+        return `  - [Hal. ${ev.pageNumber}${doiStr}${pubStr}] ${authYear}: "${ev.paraphrasedQuote}" (Kategori: ${ev.citationCategory}) [Relevansi: ${ev.topicRelevance}]`;
+      }).join("\n");
+      parts.push(`BANK KUTIPAN TERVERIFIKASI (Verified Citations - Hal & DOI Asli):\n${evLines}`);
+    } else if (mem.literatureLandscape && Array.isArray(mem.literatureLandscape) && mem.literatureLandscape.length > 0) {
+      const paperLines = mem.literatureLandscape
+        .slice(0, 5)
+        .map((j) => `  - [${j.year || "N/A"}] "${j.title}" (${j.authors || "Penulis"}) [Relevansi: ${j.relevanceScore || 0}%]`)
+        .join("\n");
+      parts.push(`LITERATURE LANDSCAPE (Jurnal Terekstraksi):\n${paperLines}`);
+    }
+  } catch (err) {
+    console.warn("Gagal memuat verified citation evidences di memory:", err.message);
   }
 
   // 2. TOC Snapshot

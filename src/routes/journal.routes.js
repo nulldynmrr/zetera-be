@@ -49,10 +49,18 @@ router.delete("/purge-rejected", journalController.purgeRejected);
 // ── Journal Discovery & Auto-Search Routes (PRD 011) ────────
 router.use("/", discoveryRoutes);
 
+// ── Verified Citation Evidence Endpoints (Strict Provenance) ────────
+router.get("/citations", journalController.getAllCitations);
+router.delete("/citations/:citationId", journalController.deleteCitation);
+
 router.get("/:journalId", journalController.getJournal);
 router.get("/:journalId/pdf-proxy", journalController.streamPdfProxy);
 router.patch("/:journalId", journalController.updateJournal);
 router.delete("/:journalId", journalController.deleteJournal);
+
+// ── Verified Citation per-Journal ─────────────────────────
+router.get("/:journalId/citations", journalController.getJournalCitations);
+router.post("/:journalId/extract-citations", journalController.extractCitations);
 
 // MASALAH 1: Pipeline terpisah — extract dulu, baru screen, baru analyze
 // Blueprint §1.5: 3 endpoint terpisah supaya retry bisa selektif

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as journalService from "../services/journal.service.js";
+import * as citationEvidenceService from "../services/citation-evidence.service.js";
 
 const createJournalSchema = z.object({
   title: z.string().min(1, "Judul jurnal wajib diisi"),
@@ -203,3 +204,59 @@ export async function streamPdfProxy(req, res, next) {
     next(err);
   }
 }
+
+// ── Verified Citation Evidence (Strict Provenance) ────────
+export async function extractCitations(req, res, next) {
+  try {
+    const { projectId, journalId } = req.params;
+    const depth = req.body?.depth || req.query?.depth || "NORMAL";
+    const citations = await citationEvidenceService.extractCitationsForJournal(journalId, projectId, { depth });
+    res.status(200).json({
+      success: true,
+      data: citations,
+      message: `Berhasil mengekstrak ${citations.length} kutipan terverifikasi dengan presisi halaman (${depth === "HEAVY" ? "Mendalam" : "Standar"}).`,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getJournalCitations(req, res, next) {
+  try {
+    const { projectId, journalId } = req.params;
+    const citations = await citationEvidenceService.getJournalCitations(journalId, projectId);
+    res.status(200).json({
+      success: true,
+      data: citations,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAllCitations(req, res, next) {
+  try {
+    const { projectId } = req.params;
+    const citations = await citationEvidenceService.getAllProjectCitations(projectId);
+    res.status(200).json({
+      success: true,
+      data: citations,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteCitation(req, res, next) {
+  try {
+    const { projectId, citationId } = req.params;
+    await citationEvidenceService.deleteCitationEvidence(citationId, projectId);
+    res.status(200).json({
+      success: true,
+      message: "Bukti kutipan berhasil dihapus.",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+

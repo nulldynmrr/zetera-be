@@ -21,16 +21,25 @@ async function getGroqClient() {
 // ── TIER-0: TITLE-ONLY FAST REJECT ──────────────────────────────────────────
 // Cek keselarasan topik berdasarkan kata kunci dan analisis semantik AI.
 // Mendukung penelitian multidisiplin (misal: Informatika + Kesehatan Mental / Medis / Pendidikan / Bisnis).
-export function localDomainCheck(projectTitle, journalTitle) {
+export function localDomainCheck(projectTitle, journalTitle, approachConfig = null) {
   const projLow = (projectTitle || "").toLowerCase();
   const jLow = (journalTitle || "").toLowerCase();
 
   // Bersihkan kata-kata umum (stop words)
   const stopWords = new Set(["dan", "yang", "di", "dari", "ke", "untuk", "pada", "dengan", "dalam", "tentang", "studi", "analisis", "pengaruh", "penerapan", "implementasi", "berbasis", "terhadap"]);
-  const projWords = projLow.split(/[^a-zA-Z0-9]+/).filter((w) => w.length > 2 && !stopWords.has(w));
+  let combinedKeywords = projLow;
+  if (approachConfig) {
+    const extra = [approachConfig.variableX, approachConfig.variableY, approachConfig.variableZ, approachConfig.focusIssue]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (extra) combinedKeywords += ` ${extra}`;
+  }
+
+  const projWords = combinedKeywords.split(/[^a-zA-Z0-9]+/).filter((w) => w.length > 2 && !stopWords.has(w));
   const jWords = jLow.split(/[^a-zA-Z0-9]+/).filter((w) => w.length > 2 && !stopWords.has(w));
 
-  // Jika ada irisan kata kunci langsung (misal: "kesehatan", "mental", "remaja", "ai", "sistem"), selalu lolos ke tahap berikutnya!
+  // Jika ada irisan kata kunci langsung (misal: "kesehatan", "mental", "remaja", "ai", "sistem" atau variabel X/Y), selalu lolos!
   const hasKeywordOverlap = jWords.some((w) => projWords.some((pw) => pw.includes(w) || w.includes(pw)));
   if (hasKeywordOverlap) {
     return null; // Pasti relevan secara tematik, serahkan ke AI Deep Screening
@@ -41,11 +50,22 @@ export function localDomainCheck(projectTitle, journalTitle) {
 }
 
 // ── TIER-0 LAYER B: AI TITLE RELEVANCE CHECK ─────────────────────────────────
-export async function titleLevelFastReject(groqClient, projectTitle, _projectField, journalTitle) {
+export async function titleLevelFastReject(groqClient, projectTitle, _projectField, journalTitle, approachConfig = null, commonNarrative = null) {
   // Cek lokal kata kunci
-  const localResult = localDomainCheck(projectTitle, journalTitle);
+  const localResult = localDomainCheck(projectTitle, journalTitle, approachConfig);
   if (localResult) {
     return localResult;
+  }
+
+  let extraContext = "";
+  if (approachConfig?.variableX || approachConfig?.variableY) {
+    const vars = [approachConfig.variableX, approachConfig.variableY, approachConfig.variableZ].filter(Boolean).join(", ");
+    extraContext += `\n- Variabel Penelitian: ${vars}`;
+  } else if (approachConfig?.focusIssue) {
+    extraContext += `\n- Fokus Riset / Fenomena: ${approachConfig.focusIssue}`;
+  }
+  if (commonNarrative?.scope) {
+    extraContext += `\n- Batasan Masalah: ${commonNarrative.scope}`;
   }
 
   try {
@@ -53,15 +73,15 @@ export async function titleLevelFastReject(groqClient, projectTitle, _projectFie
 TUGAS: Tentukan apakah judul artikel jurnal ini RELEVAN atau DAPAT DIGUNAKAN sebagai rujukan literatur untuk judul penelitian skripsi.
 
 FOKUS PENELITIAN SKRIPSI:
-- Judul / Topik Skripsi: "${projectTitle}"
+- Judul / Topik Skripsi: "${projectTitle}"${extraContext}
 
 ARTIKEL JURNAL:
 - Judul Artikel: "${journalTitle}"
 
 PRINSIP PENILAIAN AKADEMIK:
-1. FOKUS UTAMA: Relevansi dinilai HANYA berdasarkan keselarasan tema dengan Judul Skripsi ("${projectTitle}").
-2. Jika artikel membahas topik skripsi, variabel penelitian, konteks fenomena (misal: kesehatan mental, remaja, perilaku, teknologi terkait), atau populasi target, berikan penilaian PASS.
-3. Berikan VERDICT:REJECTED HANYA JIKA artikel benar-benar 100% tidak ada kaitannya sama sekali dengan tema skripsi (contoh: artikel teknik sipil jembatan atau geologi tambang pada skripsi kesehatan mental).
+1. FOKUS UTAMA: Relevansi dinilai berdasarkan keselarasan tema dengan Judul Skripsi ("${projectTitle}") dan variabel/fokus riset di atas.
+2. Jika artikel membahas topik skripsi, variabel penelitian (${approachConfig?.variableX || "X"} / ${approachConfig?.variableY || "Y"}), konteks fenomena (misal: kesehatan mental, remaja, perilaku, teknologi terkait), atau populasi target, berikan penilaian PASS.
+3. Berikan VERDICT:REJECTED HANYA JIKA artikel benar-benar 100% tidak ada kaitannya sama sekali dengan tema dan variabel skripsi.
 
 Jawab HANYA dalam format:
 VERDICT:PASS - alasan singkat
@@ -120,12 +140,42 @@ ${abstractText}
 ${extractedSections ? `KONTEN SUB-BAB TERPILIH:\n${extractedSections}` : ""}
 `.trim();
 
+  // Ekstrak detail pendekatan & narasi umum untuk memfilter tajam
+  const approachConfig = project.approachConfig || {};
+  const commonNarrative = project.commonNarrative || {};
+
+  let approachDetails = `Pendekatan: ${project.approachType || "Kuantitatif"}`;
+  if (project.approachType === "QUANTITATIVE") {
+    approachDetails += `
+- Variabel X (Bebas / Independen): ${approachConfig.variableX || "-"}
+- Variabel Y (Terikat / Dependen): ${approachConfig.variableY || "-"}
+- Variabel Z (Moderator/Intervening): ${approachConfig.variableZ || "-"}`;
+  } else if (project.approachType === "QUALITATIVE") {
+    approachDetails += `
+- Model/Desain: ${approachConfig.model || "Deskriptif Fenomenologis"}
+- Fokus Masalah / Fenomena: ${approachConfig.focusIssue || "-"}`;
+  } else if (project.approachType === "MIXED") {
+    approachDetails += `
+- Desain: ${approachConfig.design || "Sequential Explanatory"}
+- Fokus: ${approachConfig.focusIssue || "-"}`;
+  } else if (project.approachType === "RD") {
+    approachDetails += `
+- Model R&D: ${approachConfig.framework || "ADDIE"}
+- Produk/Target: ${approachConfig.focusIssue || "-"}`;
+  }
+
+  const narrativeDetails = `
+- Tujuan Penelitian: ${commonNarrative.purpose || "-"}
+- Batasan Masalah (Scope): ${commonNarrative.scope || "-"}`;
+
   const prompt = `Anda adalah Penelaah Literatur Ilmiah & Metodologi Penelitian Skripsi Akademik Pakar.
-TUGAS: Lakukan penilaian komprehensif terhadap relevansi artikel jurnal ilmiah terhadap fokus topik skripsi mahasiswa.
+TUGAS: Lakukan penilaian komprehensif terhadap relevansi artikel jurnal ilmiah terhadap fokus topik dan variabel skripsi mahasiswa.
 
 FOKUS PENELITIAN SKRIPSI:
 - Judul / Topik Skripsi: "${project.title}"
-- Deskripsi/Fokus: "${project.description || "Kajian penelitian skripsi akademik"}"
+- Bidang/Program Studi: "${project.field || project.prodi || "-"}"
+${approachDetails}
+${narrativeDetails}
 
 DATA ARTIKEL JURNAL:
 """
@@ -133,14 +183,14 @@ ${contextForAI.slice(0, 5000)}
 """
 
 PANDUAN PENILAIAN ILMIAH BERBASIS TOPIK RISET:
-1. PENILAIAN DILAKUKAN MURNI BERDASARKAN KESESUAIAN DENGAN TOPIK SKRIPSI ("${project.title}").
+1. PENILAIAN DILAKUKAN MURNI BERDASARKAN KESESUAIAN DENGAN TOPIK SKRIPSI ("${project.title}") SERTA VARIABEL DAN BATASAN MASALAH DI ATAS.
 2. STATUS "APPROVED" (Skor 80–98):
-   - Artikel mengkaji topik skripsi ("${project.title}"), faktor yang mempengaruhi, instrumen evaluasi/kuesioner (misal: MHC-SF, DASS), variabel psikososial, atau fenomena terkait.
+   - Artikel mengkaji topik skripsi, variabel penelitian (${approachConfig.variableX || "X"} / ${approachConfig.variableY || "Y"}), instrumen evaluasi/kuesioner (misal: MHC-SF, DASS), variabel psikososial, atau fenomena terkait yang berada dalam lingkup batasan masalah.
    - Artikel ini SANGAT RELEVAN sebagai Latar Belakang (Bab I), Tinjauan Pustaka (Bab II), atau Metodologi (Bab III).
 3. STATUS "UNDER_REVIEW" (Skor 55–79):
-   - Memiliki kaitan kontekstual atau variabel pembanding sekunder.
+   - Memiliki kaitan kontekstual, metodologis, atau variabel pembanding sekunder.
 4. STATUS "REJECTED" (Skor < 40):
-   - HANYA untuk artikel yang 100% tidak ada kaitannya sama sekali dengan tema riset.
+   - HANYA untuk artikel yang 100% tidak ada kaitannya sama sekali dengan tema dan variabel skripsi.
 
 Kembalikan JSON LENGKAP tanpa markdown:
 {
@@ -203,7 +253,9 @@ export async function screenAbstractsBatch(projectId, userId) {
         null,
         project.title,
         project.field,
-        journal.title
+        journal.title,
+        project.approachConfig,
+        project.commonNarrative
       );
 
       if (tier0 && tier0.verdict === "REJECTED") {

@@ -19,7 +19,7 @@ function getDirectGroqClient() {
  * 1. AI Brainstorming Topik Skripsi (TOPIC_BRAINSTORM)
  * Menghasilkan 3-5 kandidat judul skripsi bernas, mutakhir, dan relevan dengan minat mahasiswa.
  */
-export async function brainstormTopics({ minat, kataKunci, constraints, field, userId = null }) {
+export async function brainstormTopics({ minat, kataKunci, masalahDitemukan, constraints, field, userId = null }) {
   const systemPrompt = `Anda adalah Dosen Pembimbing Utama & Pakar Metodologi Riset Skripsi di Universitas Terkemuka (Zetera AI).
 Tugas Anda adalah merumuskan 4 (empat) kandidat judul skripsi yang bernas, orisinal, memiliki urgensi nyata (research gap), dan layak uji untuk mahasiswa.
 
@@ -41,9 +41,12 @@ Format output WAJIB JSON murni tanpa markdown wrapper/penjelasan di luar JSON:
 
   const userPrompt = `Permintaan Brainstorming Topik Skripsi:
 - Bidang Minat / Ketertarikan: ${minat || "Teknologi Informasi / Kesehatan / Manajemen"}
-- Kata Kunci / Topik Utama: ${kataKunci || "Penerapan AI dan Dampak Sosial"}
+- Kata Kunci / Objek Riset: ${kataKunci || "Penerapan AI dan Dampak Sosial"}
+${masalahDitemukan ? `- Fenomena / Masalah Nyata yang Sudah Ditemukan: "${masalahDitemukan}"` : ""}
 - Program Studi / Bidang Ilmu: ${field || "Umum"}
 - Batasan / Kendala Khusus: ${constraints || "Harus realistis diselesaikan dalam 1-2 semester"}
+
+${masalahDitemukan ? `PERHATIAN UTAMA: Mahasiswa telah menemukan masalah nyata: "${masalahDitemukan}". Rancang kandidat judul, coreProblem, dan researchGap yang berfokus secara langsung untuk menganalisis, menguji, atau memberikan solusi terhadap masalah empiris tersebut!` : ""}
 
 Rancang 4 rekomendasi judul dengan variasi sudut pandang metodologis (kuantitatif, kualitatif, dan terapan).`;
 
@@ -319,5 +322,121 @@ Format Output WAJIB JSON murni:
     edgesCreated: createdEdges.length,
     nodes: createdNodes,
     edges: createdEdges,
+  };
+}
+
+/**
+ * 4. AI Refine Proposal Narrative & Scope (Perbaiki Input Ngasal dengan Groq)
+ * Memperbaiki, menyempurnakan, dan melengkapi Latar Belakang, Tujuan, dan Batasan Masalah.
+ */
+export async function refineProposalNarrative({
+  title,
+  field = "Umum",
+  approachType = "QUANTITATIVE",
+  approachConfig = {},
+  commonNarrative = {},
+  userId = null,
+}) {
+  const currentBg = commonNarrative?.background?.trim() || "";
+  const currentPurpose = commonNarrative?.purpose?.trim() || "";
+  const currentScope = commonNarrative?.scope?.trim() || "";
+
+  // Ringkas konfigurasi pendekatan untuk konteks AI
+  let approachDetails = `Pendekatan: ${approachType}`;
+  if (approachConfig?.quantitative) {
+    const q = approachConfig.quantitative;
+    approachDetails += `\n- Variabel Bebas (X): ${q.variableX || "-"}\n- Variabel Terikat (Y): ${q.variableY || "-"}\n- Hipotesis: ${q.hypothesis || "-"}\n- Populasi/Sampel: ${q.population || "-"}`;
+  }
+  if (approachConfig?.qualitative) {
+    const ql = approachConfig.qualitative;
+    approachDetails += `\n- Fokus Masalah: ${ql.focus || "-"}\n- Informan Kunci: ${ql.informants || "-"}\n- Teknik Pengumpulan: ${ql.dataMethod || "-"}`;
+  }
+
+  const systemPrompt = `Anda adalah Pakar Metodologi Penelitian & Dosen Pembimbing Skripsi Akademik Terkemuka (Zetera AI).
+TUGAS UTAMA: Periksa, perbaiki, dan sempurnakan draf narasi awal proposal skripsi mahasiswa (Latar Belakang Singkat, Tujuan Penelitian, dan Batasan Masalah) agar memenuhi standar mutu akademik universitas.
+
+PANDUAN KRITIS PERBAIKAN INPUT:
+1. Jika mahasiswa menulis singkat, minim, tidak baku, atau bernada asal-asalan (contoh: menulis 'Banyak', 'bagus', 'mau tahu aja', atau kata tunggal/kosong), Anda WAJIB merumuskan ulang menjadi teks akademik formal berbobot ilmiah tinggi.
+2. LATAR BELAKANG SINGKAT (background):
+   - 2 sampai 3 kalimat bernas dengan struktur: (Kalimat 1: Fenomena nyata/urgensi tema) + (Kalimat 2: Problem/research gap) + (Kalimat 3: Kontribusi yang diajukan dalam penelitian ini).
+   - Wajib secara eksplisit menyebut variabel/fokus dari judul: "${title}".
+3. TUJUAN PENELITIAN (purpose):
+   - 2 sampai 3 butir tujuan penelitian baku, diawali kata kerja operasional terukur (contoh: '1. Menganalisis pengaruh...', '2. Mengidentifikasi faktor...', '3. Merumuskan rekomendasi...').
+4. BATASAN MASALAH (scope):
+   - Rumuskan batasan operasional penelitian yang realistis dan terukur (lingkup populasi/subjek, batasan variabel/indikator, atau batasan metodologis).
+
+Format output WAJIB JSON murni tanpa markdown wrapper:
+{
+  "background": "Teks latar belakang 2-3 kalimat akademik...",
+  "purpose": "1. Menganalisis...\\n2. Menguji...",
+  "scope": "Penelitian dibatasi pada..."
+}`;
+
+  const userPrompt = `Data Proposal Mahasiswa:
+- Judul Skripsi: "${title}"
+- Program Studi / Bidang: "${field}"
+- Metodologi:
+${approachDetails}
+
+Draf Mentah dari Mahasiswa:
+- Latar Belakang Mentah: "${currentBg || "(Kosong / Perlu dibuatkan)"}"
+- Tujuan Mentah: "${currentPurpose || "(Kosong / Perlu dibuatkan)"}"
+- Batasan Masalah Mentah: "${currentScope || "(Kosong / Perlu dibuatkan)"}"
+
+Sempurnakan ketiga butir di atas menjadi narasi akademik baku yang siap diajukan ke Dosen Pembimbing!`;
+
+  let refined = null;
+
+  // Coba via Groq Direct Client
+  const groq = getDirectGroqClient();
+  if (groq) {
+    try {
+      const chat = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 1500,
+        response_format: { type: "json_object" },
+      });
+      refined = parseJsonFromText(chat.choices[0]?.message?.content || "");
+    } catch (_) {}
+  }
+
+  // Fallback via Router
+  if (!refined?.background) {
+    try {
+      const aiRes = await executeAiCompletion({
+        featureCode: "PROPOSAL_OUTLINE",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        maxTokens: 1500,
+        jsonMode: true,
+        userId,
+      });
+      if (aiRes?.content) {
+        refined = parseJsonFromText(aiRes.content);
+      }
+    } catch (_) {}
+  }
+
+  // Fallback jika AI offline
+  if (!refined?.background) {
+    refined = {
+      background: `Penelitian mengenai "${title}" memiliki urgensi penting untuk menjawab permasalahan pada bidang ${field}. Kajian ini berfokus pada analisis empiris terkait ${approachDetails.split("\n")[0]} guna memberikan kontribusi teoretis dan rekomendasi praktis.`,
+      purpose: `1. Menganalisis fenomena utama yang terjadi pada objek penelitian "${title}".\n2. Mengetahui dinamika serta implikasi variabel terkait bagi pengembangan bidang ${field}.`,
+      scope: `Penelitian dibatasi pada ruang lingkup permasalahan sesuai variabel/fokus yang dikaji dalam judul skripsi ini.`,
+    };
+  }
+
+  return {
+    background: refined.background?.trim() || currentBg,
+    purpose: refined.purpose?.trim() || currentPurpose,
+    scope: refined.scope?.trim() || currentScope,
   };
 }

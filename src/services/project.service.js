@@ -53,6 +53,7 @@ export async function createProject(userId, {
   approachConfig,
   commonNarrative,
   customOutline,
+  citationStyle,
 }) {
   return prisma.researchProject.create({
     data: {
@@ -68,6 +69,7 @@ export async function createProject(userId, {
       approachConfig: approachConfig || null,
       commonNarrative: commonNarrative || null,
       customOutline: customOutline || null,
+      citationStyle: citationStyle || null,
     },
   });
 }
