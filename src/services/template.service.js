@@ -644,7 +644,7 @@ export async function seedDefaultTemplate() {
     fifTemplate = await prisma.proposalTemplate.create({
       data: {
         ownerId: null,
-        name: "Proposal Tugas Akhir — Format Standar Nasional (LaTeX)",
+        name: "Proposal Tugas Akhir",
         sourceFaculty: "Fakultas Informatika",
         sourceCampus: "Universitas Terakreditasi",
         formatType: "LATEX",
