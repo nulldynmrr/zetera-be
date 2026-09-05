@@ -600,7 +600,7 @@ export async function commitSwitchTemplate(projectId, userId, targetTemplateId, 
 }
 
 // ─────────────────────────────────────────────────────────────
-// Seed Standard Templates & Variables (Telkom FIF & General DOCX)
+// Seed Standard Templates & Variables (Standar Nasional & General DOCX)
 // ─────────────────────────────────────────────────────────────
 
 export const TELKOM_FIF_VARIABLES = [
@@ -610,7 +610,7 @@ export const TELKOM_FIF_VARIABLES = [
   { key: "NIM", label: "Nomor Induk Mahasiswa (NIM)", varType: "TEXT", required: true, bindingKey: "\\NIM", order: 4 },
   { key: "PROGRAM_STUDI", label: "Program Studi", varType: "TEXT", required: true, bindingKey: "\\Prodi", defaultValue: "S1 Informatika", order: 5 },
   { key: "FAKULTAS", label: "Fakultas", varType: "TEXT", required: true, bindingKey: "\\Fakultas", defaultValue: "Fakultas Informatika", order: 6 },
-  { key: "UNIVERSITAS", label: "Universitas", varType: "TEXT", required: true, bindingKey: "\\Universitas", defaultValue: "Universitas Telkom", order: 7 },
+  { key: "UNIVERSITAS", label: "Universitas", varType: "TEXT", required: true, bindingKey: "\\Universitas", defaultValue: "Universitas Terakreditasi", order: 7 },
   { key: "PEMBIMBING_1", label: "Dosen Pembimbing 1", varType: "TEXT", required: true, bindingKey: "\\PembimbingSatu", order: 8 },
   { key: "NIP_PEMBIMBING_1", label: "NIP/NIDN Pembimbing 1", varType: "TEXT", required: false, bindingKey: "\\NIPPembimbingSatu", order: 9 },
   { key: "PEMBIMBING_2", label: "Dosen Pembimbing 2", varType: "TEXT", required: false, bindingKey: "\\PembimbingDua", order: 10 },
@@ -634,7 +634,7 @@ export const GENERAL_DOCX_VARIABLES = [
 ];
 
 export async function seedDefaultTemplate() {
-  // 1. Template Telkom FIF (LaTeX)
+  // 1. Template Standar Nasional (LaTeX)
   let fifTemplate = await prisma.proposalTemplate.findFirst({
     where: { isDefault: true, ownerId: null },
     include: { variables: true, sections: true },
@@ -644,9 +644,9 @@ export async function seedDefaultTemplate() {
     fifTemplate = await prisma.proposalTemplate.create({
       data: {
         ownerId: null,
-        name: "Proposal Tugas Akhir — Informatika FIF Telkom University",
+        name: "Proposal Tugas Akhir — Format Standar Nasional (LaTeX)",
         sourceFaculty: "Fakultas Informatika",
-        sourceCampus: "Universitas Telkom",
+        sourceCampus: "Universitas Terakreditasi",
         formatType: "LATEX",
         status: "PUBLISHED",
         version: 1,
@@ -756,6 +756,6 @@ export async function seedDefaultTemplate() {
 
   return {
     seeded: true,
-    message: "Template default (Telkom FIF & General DOCX) dan variabel berhasil disinkronisasi",
+    message: "Template default (Standar Nasional & General DOCX) dan variabel berhasil disinkronisasi",
   };
 }

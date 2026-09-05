@@ -916,7 +916,7 @@ export async function exportProposalLatexZipFile(projectId, userId, templateType
     if (fs.existsSync(path.join(templateDir, "Cover.tex"))) {
       coverContent = fs.readFileSync(path.join(templateDir, "Cover.tex"), "utf-8");
     } else {
-      coverContent = `{\\centering \\large {\\bf \\Title}\\\\ \\vspace{2cm} \\textbf{\\Author}\\\\ \\textbf{\\NIM}\\\\ \\vfill \\textbf{Universitas Telkom}\\\\ \\textbf{\\Date}\\\\}`;
+      coverContent = `{\\centering \\large {\\bf \\Title}\\\\ \\vspace{2cm} \\textbf{\\Author}\\\\ \\textbf{\\NIM}\\\\ \\vfill \\textbf{Universitas Terakreditasi}\\\\ \\textbf{\\Date}\\\\}`;
     }
     zip.file("Cover.tex", coverContent);
 
