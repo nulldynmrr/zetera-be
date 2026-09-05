@@ -19,13 +19,19 @@ export async function getAiModels(req, res, next) {
         rawKey = m.apiKeyEncrypted || "";
       }
 
-      const maskedKey = rawKey.length > 8
-        ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}`
-        : "••••••••";
+      const parsedKeys = rawKey.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 5);
+      const keyPoolCount = parsedKeys.length;
+
+      const maskedKey = keyPoolCount > 1
+        ? `${parsedKeys[0].slice(0, 4)}...${parsedKeys[0].slice(-4)} (+${keyPoolCount - 1} pool keys)`
+        : (rawKey.length > 8
+          ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}`
+          : "••••••••");
 
       return {
         ...m,
         apiKeyMasked: maskedKey,
+        keyPoolCount,
       };
     });
 
@@ -262,10 +268,13 @@ export async function testAiModel(req, res, next) {
       return res.status(400).json({ success: false, message: "API Key kosong pada model ini." });
     }
 
+    const parsedKeys = apiKey.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 5);
+    const activeTestKey = parsedKeys[0] || apiKey;
+
     const isGroq = model.baseUrl.includes("groq") || model.routerLabel.toLowerCase().includes("groq");
 
     if (isGroq) {
-      const groq = new Groq({ apiKey });
+      const groq = new Groq({ apiKey: activeTestKey });
       const completion = await groq.chat.completions.create({
         model: model.modelName || "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: "Ping" }],
@@ -273,7 +282,7 @@ export async function testAiModel(req, res, next) {
       });
       return res.status(200).json({
         success: true,
-        message: "Koneksi Groq Berhasil!",
+        message: `Koneksi Groq Berhasil!${parsedKeys.length > 1 ? ` (Key 1/${parsedKeys.length} di pool)` : ""}`,
         response: completion.choices[0]?.message?.content?.trim() || "OK",
       });
     } else {
@@ -283,7 +292,7 @@ export async function testAiModel(req, res, next) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${activeTestKey}`,
         },
         body: JSON.stringify({
           model: model.modelName,

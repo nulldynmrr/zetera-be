@@ -3,7 +3,7 @@ import * as outlineService from "../services/outline.service.js";
 export async function generateBlueprint(req, res) {
   try {
     const { id: projectId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?.sub;
     const result = await outlineService.generateResearchBlueprint({ projectId, userId });
     res.json({ success: true, data: result });
   } catch (err) {
@@ -14,7 +14,7 @@ export async function generateBlueprint(req, res) {
 export async function getOutline(req, res) {
   try {
     const { id: projectId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?.sub;
     const result = await outlineService.getOutline(projectId, userId);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -25,7 +25,7 @@ export async function getOutline(req, res) {
 export async function updateOutlineItem(req, res) {
   try {
     const { id: projectId, itemId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?.sub;
     const { status, userNotes } = req.body;
     const result = await outlineService.updateOutlineItem(projectId, userId, itemId, { status, userNotes });
     res.json({ success: true, data: result });
@@ -37,7 +37,7 @@ export async function updateOutlineItem(req, res) {
 export async function addEvidence(req, res) {
   try {
     const { id: projectId, itemId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?.sub;
     const result = await outlineService.addEvidenceToItem(projectId, userId, itemId, req.body);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -48,7 +48,7 @@ export async function addEvidence(req, res) {
 export async function removeEvidence(req, res) {
   try {
     const { id: projectId, itemId, evidenceId } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?.sub;
     const result = await outlineService.removeEvidenceFromItem(projectId, userId, itemId, evidenceId);
     res.json({ success: true, data: result });
   } catch (err) {

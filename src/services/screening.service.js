@@ -50,7 +50,7 @@ export function localDomainCheck(projectTitle, journalTitle, approachConfig = nu
 }
 
 // ── TIER-0 LAYER B: AI TITLE RELEVANCE CHECK ─────────────────────────────────
-export async function titleLevelFastReject(groqClient, projectTitle, _projectField, journalTitle, approachConfig = null, commonNarrative = null) {
+export async function titleLevelFastReject(groqClient, projectTitle, _projectField, journalTitle, approachConfig = null, commonNarrative = null, userId = null, projectId = null) {
   // Cek lokal kata kunci
   const localResult = localDomainCheck(projectTitle, journalTitle, approachConfig);
   if (localResult) {
@@ -93,6 +93,8 @@ VERDICT:REJECTED - alasan singkat`;
       messages: [{ role: "user", content: prompt }],
       temperature: 0.0,
       maxTokens: 120,
+      userId,
+      projectId,
     });
 
     const raw = (res.content || "").trim().toUpperCase();
@@ -111,7 +113,8 @@ VERDICT:REJECTED - alasan singkat`;
 
 // ── TIER-1: FULL AI DEEP SCREENING (HANYA UNTUK YANG LOLOS TIER-0) ──────────
 // Baca abstrak + fullText, hasilkan detailed screening JSON dan simpan ke DB.
-export async function fullDeepScreening(groqClient, project, journal) {
+export async function fullDeepScreening(groqClient, project, journal, userId = null) {
+  const effectiveUserId = userId || project?.userId;
   const abstractText =
     journal.abstract ||
     journal.fullText?.slice(0, 3000) ||
@@ -215,6 +218,9 @@ Kembalikan JSON LENGKAP tanpa markdown:
     temperature: 0.1,
     maxTokens: 1024,
     jsonMode: true,
+    userId: effectiveUserId,
+    projectId: project?.id,
+    journalId: journal?.id,
   });
 
   return parseJsonFromText(res.content || "{}");
@@ -255,7 +261,9 @@ export async function screenAbstractsBatch(projectId, userId) {
         project.field,
         journal.title,
         project.approachConfig,
-        project.commonNarrative
+        project.commonNarrative,
+        userId,
+        projectId
       );
 
       if (tier0 && tier0.verdict === "REJECTED") {
@@ -265,7 +273,7 @@ export async function screenAbstractsBatch(projectId, userId) {
         keyTheme = "Tidak Relevan";
       } else {
         // ── TIER-1: Full Deep Screening AI ───────────────────────────────────
-        const deepResult = await fullDeepScreening(null, project, journal);
+        const deepResult = await fullDeepScreening(null, project, journal, userId);
 
         if (deepResult && deepResult.reasoning) {
           if (deepResult.relevanceScore !== undefined) relevanceScore = Number(deepResult.relevanceScore);
@@ -409,6 +417,9 @@ Catatan: Tipe node yang valid HANYA: "VARIABLE", "CONCEPT", "METHOD", "THEORY", 
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         jsonMode: true,
+        userId,
+        projectId,
+        journalId: journal?.id,
       });
 
       const parsed = parseJsonFromText(res.content || "");

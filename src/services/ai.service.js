@@ -188,7 +188,7 @@ function getSmartHeuristicRelation({ projectTitle, sourceNode, targetNode }) {
 /**
  * AI Automated Cross-Checking & Topic Matching (Dedicated Groq Key)
  */
-export async function crossCheckJournalWithGroq({ projectTitle, projectField, journal, frameworkNodes }) {
+export async function crossCheckJournalWithGroq({ projectTitle, projectField, journal, frameworkNodes, userId = null, projectId = null }) {
   const journalText = journal.abstract || journal.fullText?.slice(0, 5000) || "";
   const nodeList = frameworkNodes
     .map((n) => `- [ID: ${n.id}] Nama Variabel: "${n.label}" (Tipe: ${n.type})`)
@@ -218,15 +218,11 @@ PANDUAN PENILAIAN OBJEKTIF & AKURAT (MULTIDISIPLIN):
 2. Petakan kutipan kalimat bukti empiris ("matchedEvidence") ke variabel framework yang ada atau sediakan ringkasan metodologi.
 3. Hanya berikan "topicFit": "TIDAK COCOK" jika paper benar-benar 100% di luar sains/topik sama sekali (contoh: konstruksi semen jalan raya pada skripsi kesehatan mental).
 
-KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT TANPA MARKDOWN:
+FORMAT RESPONS (HANYA JSON VALID TANPA MARKDOWN / TEKS PENJELASAN LAIN):
 {
-  "topicFit": "SANGAT COCOK",
   "relevanceScore": 88,
-  "recommendationReason": "Artikel ini secara langsung menguji dan menganalisis variabel yang selaras dengan topik skripsi Anda.",
-  "executiveSummary": "Ringkasan intisari artikel dan signifikansinya terhadap skripsi...",
-  "methodology": "Kuantitatif Regresi / Kualitatif / Studi Kebijakan / Eksperimen",
-  "sampleSize": "Deskripsi sampel atau populasi penelitian",
-  "keyEmpiricalFindings": "Temuan empiris utama dari artikel...",
+  "topicFit": "SANGAT COCOK",
+  "reason": "Uraian objektif mengapa artikel ini relevan sebagai landasan teori / bukti...",
   "matchedEvidence": [
     {
       "nodeId": "ID node jika cocok",
@@ -254,6 +250,9 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT TANPA MARKDOWN:
       temperature: 0.1,
       maxTokens: 1200,
       jsonMode: true,
+      userId,
+      projectId,
+      journalId: journal?.id,
     });
 
     if (res.content) {

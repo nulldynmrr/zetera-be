@@ -25,7 +25,11 @@ export function requireAuth(req, res, next) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload; // { sub: userId, role: "ADMIN" | "USER", iat, exp }
+    req.user = {
+      ...payload,
+      id: payload.sub || payload.id,
+      userId: payload.sub || payload.id,
+    };
     next();
   } catch {
     res.status(401).json({ success: false, message: "Token tidak valid atau sudah kedaluwarsa" });

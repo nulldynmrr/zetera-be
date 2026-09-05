@@ -18,6 +18,7 @@ export async function getAdminStats(req, res, next) {
       modelUsageGroup,
       recentLogs,
       userTiersGroup,
+      budgetConfig,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.researchProject.count(),
@@ -78,6 +79,11 @@ export async function getAdminStats(req, res, next) {
         by: ["role"],
         _count: { id: true },
       }),
+
+      // Deposit / Budget Awal AI dari database
+      prisma.systemConfig.findUnique({
+        where: { key: "AI_INITIAL_BUDGET_USD" },
+      }),
     ]);
 
     // Format financial data
@@ -93,6 +99,13 @@ export async function getAdminStats(req, res, next) {
     const paidCalls = totalUsageStats._count.id || 0;
     const freeCalls = freeTierStats._count.id || 0;
     const totalAiCalls = paidCalls + freeCalls;
+
+    // Kalkulasi Sisa Budget AI dari deposit awal riil ($1.00)
+    const initialBudgetUsd = budgetConfig && budgetConfig.value ? parseFloat(budgetConfig.value) : 1.0;
+    const remainingBudgetUsd = Math.max(0, initialBudgetUsd - totalAiCostUsd);
+    const remainingPercent = initialBudgetUsd > 0
+      ? Math.max(0, Math.round((remainingBudgetUsd / initialBudgetUsd) * 100))
+      : 0;
 
     // Ambil detail model configs untuk melengkapi modelUsageGroup
     const modelIds = modelUsageGroup.map((m) => m.modelId).filter(Boolean);
@@ -117,9 +130,62 @@ export async function getAdminStats(req, res, next) {
       };
     });
 
+    // 7-Day Daily Trends
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const sevenDaysLogs = await prisma.aiUsageLog.findMany({
+      where: { createdAt: { gte: sevenDaysAgo } },
+      select: { createdAt: true, costUsd: true, costIdr: true, chargeUser: true },
+    });
+
+    const dailyTrendsMap = new Map();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateKey = d.toISOString().slice(0, 10);
+      const label = i === 0 ? "Hari ini" : d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+      dailyTrendsMap.set(dateKey, { label, expenseIdr: 0, revenueIdr: 0, callsCount: 0 });
+    }
+
+    const rate = billingConfig.baseRateUsdIdr || billingConfig.exchangeRateUsdToIdr || 17739;
+    sevenDaysLogs.forEach((log) => {
+      const dateKey = log.createdAt.toISOString().slice(0, 10);
+      if (dailyTrendsMap.has(dateKey)) {
+        const item = dailyTrendsMap.get(dateKey);
+        item.callsCount += 1;
+        item.expenseIdr += (log.costIdr || log.costUsd * rate || 0);
+        item.revenueIdr += (log.chargeUser * rate || 0);
+      }
+    });
+
+    const dailyTrends = Array.from(dailyTrendsMap.values());
+
+    const recentFormatted = recentLogs.map((log) => ({
+      id: log.id,
+      timestamp: log.createdAt,
+      userEmail: log.user?.email || "Guest",
+      userName: log.user?.name || "Guest",
+      featureLabel: log.feature?.label || "AI Service",
+      modelName: log.model?.modelName || "Groq Free",
+      inputTokens: log.inputTokens,
+      outputTokens: log.outputTokens,
+      costUsd: log.costUsd,
+      chargeUser: log.chargeUser,
+      creditsCharged: log.creditsCharged,
+      isFreeTier: log.isFreeTierCall,
+      profitUsd: log.profitUsd,
+    }));
+
     res.status(200).json({
       success: true,
       data: {
+        totalUsers,
+        totalProjects,
+        totalJournals,
+        totalNodes,
+        totalAiCalls,
         // Kartu Metrik Utama
         executiveMetrics: {
           totalUsers,
@@ -133,9 +199,26 @@ export async function getAdminStats(req, res, next) {
           totalAiCostUsd,
           totalRevenueIdr,
           totalProfitUsd,
-          currentExchangeRate: billingConfig.exchangeRateUsdToIdr,
+          totalBudgetCapUsd: initialBudgetUsd,
+          remainingBudgetUsd: Number(remainingBudgetUsd.toFixed(4)),
+          remainingPercent,
+          currentExchangeRate: rate,
           globalProfitMarginPercent: (billingConfig.globalMarginPercent || 0.4) * 100,
         },
+        billing: {
+          totalRevenueIdr: Math.round(totalRevenueIdr),
+          netProfitUsd: totalProfitUsd,
+          aiExpenseIdr: Math.round(totalAiCostUsd * rate),
+          aiExpenseUsd: totalAiCostUsd,
+          totalFreeCalls: freeCalls,
+          totalPaidCalls: paidCalls,
+          totalTokensUsed: totalTokensProcessed,
+          totalBudgetCapUsd: initialBudgetUsd,
+          remainingBudgetUsd: Number(remainingBudgetUsd.toFixed(4)),
+          remainingPercent,
+        },
+        // 7-day trend
+        dailyTrends,
         // Distribusi Pemakaian Model
         modelDistribution,
         // Distribusi Pengguna
@@ -143,21 +226,9 @@ export async function getAdminStats(req, res, next) {
           role: u.role,
           count: u._count.id,
         })),
-        // 10 Log Terakhir
-        recentActivities: recentLogs.map((log) => ({
-          id: log.id,
-          timestamp: log.createdAt,
-          userEmail: log.user?.email || "Guest",
-          userName: log.user?.name || "Guest",
-          featureLabel: log.feature?.label || "AI Service",
-          modelName: log.model?.modelName || "Groq Free",
-          inputTokens: log.inputTokens,
-          outputTokens: log.outputTokens,
-          costUsd: log.costUsd,
-          chargeUser: log.chargeUser,
-          creditsCharged: log.creditsCharged,
-          isFreeTier: log.isFreeTierCall,
-        })),
+        // Log Terakhir (kedua alias untuk fleksibilitas)
+        recentActivities: recentFormatted,
+        recentLogs: recentFormatted,
         serverTime: new Date().toISOString(),
       },
     });

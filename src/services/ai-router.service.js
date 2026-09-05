@@ -55,8 +55,31 @@ export async function executeAiCompletion({
   maxTokens = 2500,
   jsonMode = false,
   userId = null,
+  projectId = null,
+  journalId = null,
 }) {
   const startTime = Date.now();
+
+  // Auto-resolve userId dari context projectId atau journalId jika userId belum diisi eksplisit
+  if (!userId && projectId) {
+    try {
+      const proj = await prisma.researchProject.findUnique({
+        where: { id: projectId },
+        select: { userId: true },
+      });
+      if (proj?.userId) userId = proj.userId;
+    } catch (_) {}
+  }
+  if (!userId && journalId) {
+    try {
+      const j = await prisma.journal.findUnique({
+        where: { id: journalId },
+        select: { project: { select: { userId: true } } },
+      });
+      if (j?.project?.userId) userId = j.project.userId;
+    } catch (_) {}
+  }
+
   const { feature, primaryModel, fallbackModel } = await resolveModelForFeature(featureCode);
 
   // 0. Pre-Flight Credit Verification (Anti-Cost Leak & Anti-Fraud)

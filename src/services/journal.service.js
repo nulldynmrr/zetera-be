@@ -904,7 +904,16 @@ export async function screenJournal(journalId, userId) {
 
   try {
     // 2. Fast Reject AI Check
-    const tier0 = await titleLevelFastReject(null, project.title, project.field, titleForScreen);
+    const tier0 = await titleLevelFastReject(
+      null,
+      project.title,
+      project.field,
+      titleForScreen,
+      project.approachConfig,
+      project.commonNarrative,
+      userId,
+      project.id
+    );
     if (tier0 && tier0.verdict === "REJECTED") {
       autoStatus = "REJECTED";
       autoScore = 15.0;
@@ -912,11 +921,16 @@ export async function screenJournal(journalId, userId) {
       console.log(`[AUTO-SCREEN AI REJECT] "${titleForScreen}" → ${tier0.reason}`);
     } else {
       // 3. Full Deep Screening AI
-      const deepResult = await fullDeepScreening(null, project, {
-        ...journal,
-        title: titleForScreen,
-        abstract: abstractForScreen,
-      });
+      const deepResult = await fullDeepScreening(
+        null,
+        project,
+        {
+          ...journal,
+          title: titleForScreen,
+          abstract: abstractForScreen,
+        },
+        userId
+      );
       if (deepResult && deepResult.reasoning) {
         if (deepResult.relevanceScore !== undefined) autoScore = Number(deepResult.relevanceScore);
         if (deepResult.recommendation) autoStatus = deepResult.recommendation;
