@@ -13,7 +13,8 @@
     "db:seed": "node prisma/seed.js",
     "keys": "node src/scripts/manage-api-keys.js",
     "seed:keys": "node src/scripts/seed-api-keys.js",
-    "create:admin": "node src/scripts/create-admin.js"
+    "create:admin": "node src/scripts/create-admin.js",
+    "test:integrity": "node src/scripts/test-anti-fraud.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

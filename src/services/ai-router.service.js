@@ -1,15 +1,17 @@
 import prisma from "../lib/prisma.js";
 import { getSecret } from "./config.service.js";
 import { decryptText } from "../lib/encryption.js";
-import { getMaiarouterChatCompletion, getMaiarouterEmbeddings } from "./maiarouter.service.js";
-import { Groq } from "groq-sdk";
-import { settleActualUsage } from "./billing.service.js";
+import { getAiProviderAdapter } from "../modules/ai-adapters/ai-provider.factory.js";
+import { GroqAdapter } from "../modules/ai-adapters/groq.adapter.js";
+import { settleActualUsage, estimateCreditCost, verifyBalance } from "./billing.service.js";
+
+const fallbackGroqAdapter = new GroqAdapter();
 
 /**
  * ── Multi-Model AI Router & Dispatcher ───────────────────────────────────
  * Menangani routing fitur skripsi ke model AI yang dikonfigurasi di database.
  * Mendukung primary model, fallback model otomatis, dual-tier (free vs paid),
- * serta telemetri pencatatan pemakaian token secara real-time.
+ * verifikasi saldo kredit pra-eksekusi (pre-flight balance check), serta telemetri.
  * ────────────────────────────────────────────────────────────────────────
  */
 
@@ -57,6 +59,23 @@ export async function executeAiCompletion({
   const startTime = Date.now();
   const { feature, primaryModel, fallbackModel } = await resolveModelForFeature(featureCode);
 
+  // 0. Pre-Flight Credit Verification (Anti-Cost Leak & Anti-Fraud)
+  // Verifikasi saldo pengguna sebelum API provider dipanggil untuk mencegah kebocoran biaya token
+  const costEstimate = await estimateCreditCost(featureCode, maxTokens, userId).catch((err) => {
+    console.warn(`[AI-ROUTER] Gagal menghitung estimasi biaya kredit untuk fitur "${featureCode}":`, err.message);
+    return null;
+  });
+
+  if (costEstimate && !costEstimate.isFreeTier && costEstimate.estimatedCredits > 0) {
+    if (!userId) {
+      const authErr = new Error("Autentikasi akun pengguna diperlukan untuk mengakses fitur riset berbayar ini.");
+      authErr.statusCode = 401;
+      throw authErr;
+    }
+    // Verifikasi saldo kredit - lempar 402 jika saldo tidak cukup
+    await verifyBalance(userId, costEstimate.estimatedCredits);
+  }
+
   let targetModel = primaryModel;
   let response = null;
   let usedFallback = false;
@@ -74,7 +93,7 @@ export async function executeAiCompletion({
       });
       usageInfo = response.usage || usageInfo;
     } catch (err) {
-      console.warn(`[AI-ROUTER] Primary model ${targetModel.modelName} gagal: ${err.message}. Mencoba fallback...`);
+      console.warn(`[AI-ROUTER] Primary model "${targetModel.modelName}" gagal: ${err.message}. Mencoba fallback...`);
       if (fallbackModel && fallbackModel.isActive) {
         targetModel = fallbackModel;
         usedFallback = true;
@@ -102,33 +121,30 @@ export async function executeAiCompletion({
     });
     usageInfo = response.usage || usageInfo;
   } else {
-    // Default fallback to Groq
+    // Default fallback to Groq via Adapter
     const groqKey =
       (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI")) ||
       (await getSecret("GROQ_API_KEY")) ||
       process.env.GROQ_API_KEY;
+
     if (!groqKey) {
-      throw new Error("Tidak ada model AI aktif yang tersedia untuk fitur ini.");
+      throw new Error("Tidak ada model AI aktif atau API Key yang tersedia untuk fitur ini.");
     }
-    const groq = new Groq({ apiKey: groqKey });
-    const comp = await groq.chat.completions.create({
-      model: "qwen/qwen3.8-27b",
+
+    response = await fallbackGroqAdapter.executeCompletion({
+      model: { modelName: "qwen/qwen3.8-27b" },
       messages,
       temperature,
-      max_tokens: maxTokens,
-      response_format: jsonMode ? { type: "json_object" } : undefined,
+      maxTokens,
+      jsonMode,
+      apiKey: groqKey,
     });
-    response = {
-      content: comp.choices[0]?.message?.content || "",
-      usage: comp.usage,
-      raw: comp,
-    };
-    usageInfo = comp.usage || usageInfo;
+    usageInfo = response.usage || usageInfo;
   }
 
   const responseTimeMs = Date.now() - startTime;
 
-  // 2. Telemetry & Billing Settle
+  // 2. Telemetry & Billing Settle (Hanya dieksekusi setelah pemanggilan AI sukses)
   const inputTokens = usageInfo.prompt_tokens || Math.round(JSON.stringify(messages).length / 4);
   const outputTokens = usageInfo.completion_tokens || Math.round((response.content || "").length / 4);
 
@@ -162,7 +178,7 @@ export async function executeAiCompletion({
 }
 
 /**
- * Dispatcher internal yang memanggil provider spesifik (Groq, MaiaRouter, OpenAI)
+ * Dispatcher internal yang memanggil provider melalui AI Provider Adapter
  */
 async function dispatchModelCall({ model, messages, temperature, maxTokens, jsonMode }) {
   let modelKey = "";
@@ -172,68 +188,31 @@ async function dispatchModelCall({ model, messages, temperature, maxTokens, json
     modelKey = model.apiKeyEncrypted || "";
   }
 
-  // A. Provider MaiaRouter / OpenAI compatible
-  if (model.baseUrl.includes("maiarouter") || model.baseUrl.includes("openai") || model.baseUrl.includes("/v1")) {
-    const rawApiKey =
-      modelKey ||
-      (await getSecret(model.routerLabel)) ||
-      (await getSecret("MAIAROUTER_API_KEY")) ||
-      process.env.MAIAROUTER_API_KEY;
+  const adapter = getAiProviderAdapter(model);
 
-    const targetUrl = model.baseUrl.endsWith("/chat/completions")
-      ? model.baseUrl
-      : `${model.baseUrl.replace(/\/$/, "")}/chat/completions`;
-
-    const requestBody = {
-      model: model.modelName,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    };
-    if (jsonMode) requestBody.response_format = { type: "json_object" };
-
-    const resp = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${rawApiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`[${model.routerLabel} HTTP ${resp.status}]: ${errText}`);
+  // Resolusi API key spesifik provider
+  let finalApiKey = modelKey;
+  if (!finalApiKey) {
+    if (adapter.name === "OpenAI-Compatible") {
+      finalApiKey =
+        (await getSecret(model.routerLabel)) ||
+        (await getSecret("MAIAROUTER_API_KEY")) ||
+        process.env.MAIAROUTER_API_KEY;
+    } else {
+      finalApiKey =
+        (await getSecret(model.routerLabel)) ||
+        (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI")) ||
+        (await getSecret("GROQ_API_KEY")) ||
+        process.env.GROQ_API_KEY;
     }
-
-    const data = await resp.json();
-    return {
-      content: data.choices?.[0]?.message?.content || "",
-      usage: data.usage || {},
-      raw: data,
-    };
   }
 
-  // B. Groq Provider
-  const groqApiKey =
-    modelKey ||
-    (await getSecret(model.routerLabel)) ||
-    (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI")) ||
-    (await getSecret("GROQ_API_KEY")) ||
-    process.env.GROQ_API_KEY;
-
-  const groq = new Groq({ apiKey: groqApiKey });
-  const comp = await groq.chat.completions.create({
-    model: model.modelName || "qwen/qwen3.8-27b",
+  return await adapter.executeCompletion({
+    model,
     messages,
     temperature,
-    max_tokens: maxTokens,
-    response_format: jsonMode ? { type: "json_object" } : undefined,
+    maxTokens,
+    jsonMode,
+    apiKey: finalApiKey,
   });
-
-  return {
-    content: comp.choices[0]?.message?.content || "",
-    usage: comp.usage || {},
-    raw: comp,
-  };
 }

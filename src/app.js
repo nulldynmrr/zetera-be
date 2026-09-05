@@ -19,6 +19,8 @@ import promptRoutes from "./routes/prompt.routes.js";
 import { seedDefaultTemplate } from "./services/template.service.js";
 import { initDefaultSecrets } from "./services/config.service.js";
 
+import { requireAuth } from "./middlewares/auth.middleware.js";
+
 const app = express();
 
 // Auto-seed default template & encrypted database secrets in background on server boot
@@ -35,18 +37,78 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// ── SSRF Guard Helper ──────────────────────────────
+function isSafeExternalUrl(targetUrl) {
+  try {
+    const parsed = new URL(targetUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return { safe: false, reason: "Protokol harus http: atau https:" };
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // 1. Tolak hostname loopback & internal domain
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal")
+    ) {
+      return { safe: false, reason: "Akses ke hostname lokal/internal dilarang" };
+    }
+
+    // 2. Tolak IPv4 loopback & subnet privat (RFC 1918 + Link-Local Cloud Metadata)
+    const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    const ipv4Match = hostname.match(ipv4Regex);
+    if (ipv4Match) {
+      const o1 = Number(ipv4Match[1]);
+      const o2 = Number(ipv4Match[2]);
+      if (o1 === 127) return { safe: false, reason: "Akses ke IP loopback (127.0.0.0/8) dilarang" };
+      if (o1 === 10) return { safe: false, reason: "Akses ke subnet privat (10.0.0.0/8) dilarang" };
+      if (o1 === 172 && o2 >= 16 && o2 <= 31) return { safe: false, reason: "Akses ke subnet privat (172.16.0.0/12) dilarang" };
+      if (o1 === 192 && o2 === 168) return { safe: false, reason: "Akses ke subnet privat (192.168.0.0/16) dilarang" };
+      if (o1 === 169 && o2 === 254) return { safe: false, reason: "Akses ke cloud metadata / link-local (169.254.0.0/16) dilarang" };
+      if (o1 === 0) return { safe: false, reason: "Akses ke IP non-routable 0.0.0.0 dilarang" };
+    }
+
+    // 3. Tolak IPv6 loopback / unique local
+    if (
+      hostname === "[::1]" ||
+      hostname === "::1" ||
+      hostname.startsWith("fc00:") ||
+      hostname.startsWith("fd") ||
+      hostname.startsWith("fe80:")
+    ) {
+      return { safe: false, reason: "Akses ke IPv6 privat/loopback dilarang" };
+    }
+
+    return { safe: true };
+  } catch {
+    return { safe: false, reason: "Format URL tidak valid" };
+  }
+}
+
 // ── Middleware global ──────────────────────────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+].filter(Boolean);
+
 app.use(cors({
   origin: (origin, callback) => {
+    // Izinkan request tanpa origin (mobile apps, server-to-server, curl, Postman)
     if (!origin) return callback(null, true);
     if (
-      origin.includes("localhost") ||
-      origin.includes("127.0.0.1") ||
-      origin === process.env.FRONTEND_URL
+      allowedOrigins.includes(origin) ||
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:")
     ) {
       return callback(null, true);
     }
-    return callback(null, true);
+    return callback(new Error(`CORS Policy: Origin '${origin}' tidak diizinkan`), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -60,16 +122,17 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/uploads", express.static(uploadDir));
 
 // PDF Proxy Endpoint for embedded split-screen viewing without X-Frame-Options or CORS blocks
-app.get("/api/proxy-pdf", async (req, res) => {
+// Protected with requireAuth and SSRF guard
+app.get("/api/proxy-pdf", requireAuth, async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send("Parameter URL wajib disertakan");
 
-  try {
-    const parsed = new URL(targetUrl);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return res.status(400).send("Protokol URL tidak valid");
-    }
+  const safety = isSafeExternalUrl(targetUrl);
+  if (!safety.safe) {
+    return res.status(403).send(`Permintaan ditolak demi keamanan (SSRF): ${safety.reason}`);
+  }
 
+  try {
     const response = await fetch(targetUrl, {
       headers: {
         "User-Agent":
@@ -91,7 +154,6 @@ app.get("/api/proxy-pdf", async (req, res) => {
     }
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Access-Control-Allow-Origin", "*");
     res.removeHeader("X-Frame-Options");
     res.removeHeader("Content-Security-Policy");
 

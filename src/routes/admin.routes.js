@@ -83,4 +83,21 @@ router.post("/configs/test-groq", testGroqConnection);
 // @deprecated: Gunakan /configs/test-groq. Dipertahankan sementara untuk backward compatibility.
 router.post("/configs/test-connection", testGroqConnection);
 
+// ── 9. Research System & Citation Explorer ──
+import {
+  getAdminProjects,
+  getAdminProjectJournals,
+  updateAdminJournal,
+  deleteAdminJournal,
+  updateAdminCitation,
+  deleteAdminCitation,
+} from "../controllers/admin/projects.controller.js";
+
+router.get("/projects", getAdminProjects);
+router.get("/projects/:id/journals", getAdminProjectJournals);
+router.patch("/journals/:id", updateAdminJournal);
+router.delete("/journals/:id", deleteAdminJournal);
+router.patch("/citations/:id", updateAdminCitation);
+router.delete("/citations/:id", deleteAdminCitation);
+
 export default router;

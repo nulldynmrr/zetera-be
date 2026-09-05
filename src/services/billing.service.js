@@ -149,11 +149,17 @@ export async function estimateCreditCost(featureCode, estimatedTokens = 1200, us
 }
 
 /**
- * Memverifikasi kecukupan saldo kredit user secara atomic
+ * Memverifikasi kecukupan saldo kredit user secara atomic sebelum AI dieksekusi
  */
-export async function verifyBalance(userId, requiredCredits) {
-  if (requiredCredits <= 0) return true;
-  if (!userId) return false;
+export async function verifyBalance(userId, requiredCredits = 0) {
+  if (requiredCredits <= 0) {
+    return { success: true, currentBalance: 0, requiredCredits: 0 };
+  }
+  if (!userId) {
+    const err = new Error("Autentikasi akun diperlukan untuk menggunakan fitur AI berbayar ini.");
+    err.statusCode = 401;
+    throw err;
+  }
 
   const totalRemaining = await prisma.userCreditBalance.aggregate({
     where: { userId },
@@ -163,20 +169,50 @@ export async function verifyBalance(userId, requiredCredits) {
   const currentBalance = totalRemaining._sum.creditsRemaining || 0;
   if (currentBalance < requiredCredits) {
     const err = new Error(
-      `Saldo kredit tidak mencukupi. Diperlukan ${requiredCredits} kredit, saldo Anda saat ini: ${currentBalance} kredit.`
+      `Saldo kredit riset tidak mencukupi. Diperlukan minimal ${requiredCredits} kredit, saldo Anda saat ini: ${currentBalance} kredit. Silakan top up kredit Anda.`
     );
     err.statusCode = 402;
     err.details = { requiredCredits, currentBalance };
     throw err;
   }
 
-  return true;
+  return { success: true, currentBalance, requiredCredits };
+}
+
+/**
+ * Mencatat transaksi kredit manual/programatik ke ledger audit credit_transactions
+ */
+export async function recordCreditTransaction({
+  userId,
+  type,
+  amount,
+  description,
+  refId = null,
+  tx = prisma,
+}) {
+  const userBal = await tx.userCreditBalance.aggregate({
+    where: { userId },
+    _sum: { creditsRemaining: true },
+  });
+  const balanceAfter = userBal._sum.creditsRemaining || 0;
+
+  return await tx.creditTransaction.create({
+    data: {
+      userId,
+      type,
+      amount,
+      balanceAfter,
+      description: description || `Transaksi kredit ${type}`,
+      refId,
+    },
+  });
 }
 
 /**
  * Menyelesaikan (settle) pemakaian AI setelah pemanggilan API selesai
- * 1. Mengurangi saldo user secara atomic (jika paid tier)
- * 2. Mencatat log telemetri AI lengkap dengan rincian biaya, margin profit, dan respon waktu
+ * 1. Mengurangi saldo user secara atomic FIFO (jika paid tier)
+ * 2. Mencatat log telemetri AI lengkap
+ * 3. Menulis entri audit buku besar (credit_transactions) secara konsisten
  */
 export async function settleActualUsage({
   userId,
@@ -228,6 +264,8 @@ export async function settleActualUsage({
 
   // Atomic DB transaction
   return await prisma.$transaction(async (tx) => {
+    let actualDeducted = 0;
+
     // 1. Deduct balance jika bukan free-tier dan ada user
     if (!isFreeTier && creditsToDeduct > 0 && userId) {
       // Ambil saldo yang aktif secara FIFO
@@ -245,6 +283,7 @@ export async function settleActualUsage({
           data: { creditsRemaining: bal.creditsRemaining - deductFromThis },
         });
         remainingToDeduct -= deductFromThis;
+        actualDeducted += deductFromThis;
       }
     }
 
@@ -259,13 +298,33 @@ export async function settleActualUsage({
         costUsd,
         costIdr: Math.round(rawCostIdr),
         chargeUser: chargeUsd,
-        creditsCharged: isFreeTier ? 0 : creditsToDeduct,
+        creditsCharged: isFreeTier ? 0 : actualDeducted,
         profitUsd,
         isFreeTierCall: isFreeTier,
         responseTimeMs,
         statusCode,
       },
     });
+
+    // 3. Tulis audit trail ke CreditTransaction jika ada kredit yang terpotong
+    if (!isFreeTier && actualDeducted > 0 && userId) {
+      const userBal = await tx.userCreditBalance.aggregate({
+        where: { userId },
+        _sum: { creditsRemaining: true },
+      });
+      const balanceAfter = userBal._sum.creditsRemaining || 0;
+
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          type: "USAGE",
+          amount: -actualDeducted,
+          balanceAfter,
+          description: `Pemakaian AI: ${feature?.label || featureCode || "Fitur Riset"} (${model?.modelName || "LLM"})`,
+          refId: log.id,
+        },
+      });
+    }
 
     return log;
   });

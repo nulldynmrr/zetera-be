@@ -26,6 +26,7 @@ model User {
   projects       ResearchProject[]
   profile        UserProfile?
   creditBalances UserCreditBalance[]
+  creditTransactions CreditTransaction[]
   aiUsageLogs    AiUsageLog[]
 
   @@map("users")
@@ -568,6 +569,34 @@ model UserCreditBalance {
 
   @@index([userId])
   @@map("user_credit_balances")
+}
+
+// ── 6b. Buku Besar Transaksi Kredit (Audit Trail & Double-Entry Ledger) ──
+enum CreditTransactionType {
+  PURCHASE
+  USAGE
+  BONUS
+  REFUND
+  ADMIN_ADJUSTMENT
+  REFERRAL_REWARD
+  EXPIRED
+}
+
+model CreditTransaction {
+  id           String                @id @default(cuid())
+  userId       String
+  type         CreditTransactionType
+  amount       Int                   // Nilai negatif untuk pemakaian/deduction, positif untuk top-up/bonus
+  balanceAfter Int                   // Snapshot saldo kredit user setelah transaksi ini
+  description  String?               @db.VarChar(255)
+  refId        String?               @db.VarChar(100) // ID referensi misal aiUsageLog.id, packageId, paymentId
+  createdAt    DateTime              @default(now())
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("credit_transactions")
 }
 
 // ── 7. Telemetri Log Pemakaian AI & Margin Profit ─────

@@ -2,12 +2,25 @@ import jwt from "jsonwebtoken";
 
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization;
-  const queryToken = req.query.token;
+  let token = null;
 
-  const token = header && header.startsWith("Bearer ") ? header.slice(7) : queryToken;
+  if (header && header.startsWith("Bearer ")) {
+    token = header.slice(7).trim();
+  } else if (req.query.token) {
+    // Hanya izinkan token lewat query URL pada streaming PDF/media di mana tag <iframe> atau <embed> tidak bisa mengirim custom header
+    const isPdfProxyPath = req.path.includes("/pdf-proxy") || req.path === "/api/proxy-pdf";
+    if (isPdfProxyPath) {
+      token = String(req.query.token).trim();
+    } else {
+      return res.status(401).json({
+        success: false,
+        message: "Pengiriman token melalui query URL dilarang untuk endpoint ini. Gunakan header Authorization: Bearer <token>",
+      });
+    }
+  }
 
   if (!token) {
-    return res.status(401).json({ success: false, message: "Token tidak ditemukan" });
+    return res.status(401).json({ success: false, message: "Token autentikasi tidak ditemukan" });
   }
 
   try {
@@ -15,7 +28,7 @@ export function requireAuth(req, res, next) {
     req.user = payload; // { sub: userId, role: "ADMIN" | "USER", iat, exp }
     next();
   } catch {
-    res.status(401).json({ success: false, message: "Token tidak valid atau sudah expired" });
+    res.status(401).json({ success: false, message: "Token tidak valid atau sudah kedaluwarsa" });
   }
 }
 
