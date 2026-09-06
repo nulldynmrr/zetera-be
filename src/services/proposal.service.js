@@ -191,8 +191,15 @@ export async function saveProposalData(projectId, userId, draftData = {}) {
 
   const updateData = {
     commonNarrative: updatedNarrative,
-    customOutline: draftData.customSubChapters || project.customOutline,
   };
+
+  // Only update customOutline if an explicit valid BabStructure[] is provided
+  if (
+    Array.isArray(draftData.customOutline) &&
+    draftData.customOutline.some((b) => b && (b.babNumber || b.subChapters))
+  ) {
+    updateData.customOutline = draftData.customOutline;
+  }
 
   if (draftData.variableValues) {
     updateData.variableValues = draftData.variableValues;

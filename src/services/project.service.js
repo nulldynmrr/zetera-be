@@ -100,12 +100,70 @@ import { updateTocSnapshot } from "./memory.service.js";
 
 export async function getCustomOutline(projectId, userId) {
   const project = await getProjectById(projectId, userId);
+  let customOutline = project.customOutline;
+
+  const isValidBabStructure =
+    Array.isArray(customOutline) &&
+    customOutline.length > 0 &&
+    customOutline.some((b) => b && (b.babNumber || b.subChapters));
+
+  // If invalid or missing, auto-reconstruct from existing ResearchOutlineItems in DB
+  if (!isValidBabStructure) {
+    const outlineItems = await prisma.researchOutlineItem.findMany({
+      where: { projectId },
+      orderBy: [{ bab: "asc" }, { order: "asc" }],
+    });
+
+    if (outlineItems.length > 0) {
+      const ROMAN_MAP = { 1: "BAB I", 2: "BAB II", 3: "BAB III", 4: "BAB IV", 5: "BAB V" };
+      const DEFAULT_TITLES = {
+        1: "Pendahuluan",
+        2: "Landasan Teori & Tinjauan Pustaka",
+        3: "Metodologi Penelitian",
+        4: "Hasil dan Pembahasan",
+        5: "Kesimpulan dan Saran",
+      };
+
+      const reconstructed = [];
+      for (let bNum = 1; bNum <= 5; bNum++) {
+        const subs = outlineItems
+          .filter((i) => i.bab === bNum)
+          .map((i) => ({
+            id: i.itemId,
+            itemId: i.itemId,
+            title: i.title,
+            depth: i.depth || 2,
+            tag: i.tag || null,
+            isCustom: Boolean(i.isCustom),
+          }));
+
+        if (subs.length > 0 || bNum <= 3) {
+          reconstructed.push({
+            babNumber: bNum,
+            roman: ROMAN_MAP[bNum] || `BAB ${bNum}`,
+            title: DEFAULT_TITLES[bNum] || `BAB ${bNum}`,
+            subChapters: subs,
+          });
+        }
+      }
+
+      if (reconstructed.length > 0) {
+        customOutline = reconstructed;
+        // Auto-heal DB record
+        await prisma.researchProject.update({
+          where: { id: projectId },
+          data: { customOutline },
+        }).catch(() => {});
+      }
+    }
+  }
+
   return {
     projectId: project.id,
     title: project.title,
     prodi: project.prodi,
     approachType: project.approachType,
-    customOutline: project.customOutline || null,
+    customOutline: customOutline || null,
   };
 }
 

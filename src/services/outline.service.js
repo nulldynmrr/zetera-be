@@ -656,6 +656,7 @@ export async function getOutline(projectId, userId) {
       title: project.title,
       approachType: project.approachType,
       citationStyle: project.citationStyle,
+      customOutline: project.customOutline || null,
     },
     items,
   };
