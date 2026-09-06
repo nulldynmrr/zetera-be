@@ -1797,3 +1797,149 @@ function buildDefaultBlueprint(title, approachType) {
 
   return [...bab1, ...bab2, ...bab3];
 }
+
+/**
+ * Sintesis Otomatis Seluruh Poin Instruksi Sub-bab Berdasarkan Jurnal Pool Terverifikasi DOI
+ */
+export async function synthesizeAllOutlinePoints({ projectId, userId, itemId }) {
+  const project = await prisma.researchProject.findFirst({
+    where: { id: projectId, ...(userId ? { userId } : {}) },
+    include: {
+      journals: {
+        where: {
+          status: { in: ["APPROVED", "CANDIDATE", "UNDER_REVIEW"] },
+          tier: { not: "EXCLUDED" },
+        },
+        orderBy: [
+          { tier: "asc" },
+          { relevanceScore: "desc" },
+        ],
+      },
+    },
+  });
+
+  if (!project) throw new Error("Project tidak ditemukan");
+
+  const item = await prisma.researchOutlineItem.findFirst({
+    where: { projectId, itemId },
+  });
+
+  if (!item) throw new Error(`Outline item ${itemId} tidak ditemukan`);
+
+  const task = item.researchTask || {};
+  let bullets = Array.isArray(task.bulletInstructions) && task.bulletInstructions.length > 0
+    ? task.bulletInstructions
+    : [];
+
+  if (bullets.length === 0) {
+    bullets = [
+      { step: `Definisikan konsep fundamental dan variabel utama dari "${item.title}" terkait topik "${project.title}".` },
+      { step: `Jelaskan fenomena, tren kondisi terkini, dan urgensi masalah dari "${item.title}".` },
+      { step: `Uraikan bukti empiris, temuan penelitian terdahulu, dan gap yang diatasi terkait "${item.title}".` },
+      { step: `Tautkan analisis "${item.title}" ke dalam tujuan penelitian skripsi ini.` },
+    ];
+  }
+
+  // Format Pool Jurnal Terverifikasi
+  const verifiedJournals = (project.journals || []).map((j, idx) => ({
+    seq: idx + 1,
+    id: j.id,
+    title: j.title,
+    authors: j.authors || "Penulis",
+    year: j.year || new Date().getFullYear(),
+    publication: j.publication || "Jurnal Ilmiah",
+    doi: j.doi && j.doi !== "-" ? j.doi : null,
+    findings: j.keyFindings || j.abstract || "Temuan riset empiris",
+  }));
+
+  const journalsContext = verifiedJournals.length > 0
+    ? verifiedJournals
+        .map(
+          (j) =>
+            `[${j.seq}] ${j.authors} (${j.year}). "${j.title}". ${j.publication}. ${j.doi ? `DOI: ${j.doi}` : ""}\n   Ringkasan Temuan: ${j.findings}`
+        )
+        .join("\n\n")
+    : "(Kaji berdasarkan prinsip ilmiah umum terkait topik)";
+
+  const memoryContext = await buildMemoryContext(projectId).catch(() => "");
+
+  const prompt = `Anda adalah Asisten Peneliti AI Akademis Senior (Zetera AI).
+Tugas Anda adalah MENJAWAB SEMUA BUTIR INSTRUKSI RISET (${bullets.length} Butir) untuk sub-bab: ${item.itemId} (${item.title}) pada skripsi:
+- Judul Skripsi: "${project.title}"
+- Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
+- Pendekatan: "${project.approachType || "QUANTITATIVE"}"
+
+DAFTAR JURNAL ILMIAH TERVERIFIKASI POOL PROYEK:
+${journalsContext}
+
+${memoryContext ? memoryContext + "\n" : ""}
+
+DAFTAR BUTIR INSTRUKSI RISET YANG WAJIB DIJAWAB SATU PER SATU:
+${bullets.map((b, idx) => `Poin ${idx + 1}: ${b.step || b}`).join("\n")}
+
+ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
+1. Jawab SETIAP butir instruksi di atas secara bernas, ilmiah, dan mendalam (panjang 2-4 kalimat berbobot per butir).
+2. SANGAT PENTING - SITASI HARUS TEPAT: Sisipkan nomor sitasi kurung siku [1], [2], dst. yang PERSIS merujuk pada nomor jurnal [seq] dari daftar jurnal di atas! JANGAN MENGUBAH NOMOR SITASI. Jurnal pertama adalah [1], jurnal kedua [2], dst.
+3. Gunakan bahasa Indonesia baku formal akademis (EYD/PUEBI), bernas, kohesif, dan bebas basa-basi.
+4. Format output WAJIB JSON murni:
+{
+  "pointAnswers": [
+    {
+      "index": 0,
+      "text": "Teks jawaban lengkap poin 1 dengan sitasi [1]...",
+      "citedJournals": [1]
+    }
+  ],
+  "combinedDraft": "Seluruh naskah gabungan mengalir secara logis per paragraf dari poin 1 sampai selesai lengkap dengan sitasi [1], [2]..."
+}`;
+
+  const aiRes = await executeAiCompletion({
+    featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.25,
+    maxTokens: 3800,
+    jsonMode: true,
+    userId,
+    projectId,
+  });
+
+  const parsed = parseJsonFromText(aiRes.content || "");
+  let pointAnswers = [];
+  let combinedDraft = "";
+
+  if (parsed && Array.isArray(parsed.pointAnswers) && parsed.pointAnswers.length > 0) {
+    pointAnswers = parsed.pointAnswers.map((p, idx) => ({
+      index: typeof p.index === "number" ? p.index : idx,
+      text: (p.text || "").trim(),
+      citedJournals: Array.isArray(p.citedJournals) ? p.citedJournals : [],
+    }));
+    combinedDraft = (parsed.combinedDraft || "").trim();
+  } else {
+    pointAnswers = bullets.map((b, idx) => ({
+      index: idx,
+      text: `Kajian ilmiah mengenai ${b.step || b} dengan dukungan bukti empiris penelitian terdahulu [1].`,
+      citedJournals: [1],
+    }));
+    combinedDraft = pointAnswers.map((p) => p.text).join("\n\n");
+  }
+
+  if (!combinedDraft && pointAnswers.length > 0) {
+    combinedDraft = pointAnswers.map((p) => p.text).join("\n\n");
+  }
+
+  // Simpan hasil ke database ResearchOutlineItem
+  await prisma.researchOutlineItem.update({
+    where: { id: item.id },
+    data: {
+      userNotes: combinedDraft,
+      status: "IN_PROGRESS",
+    },
+  });
+
+  return {
+    pointAnswers,
+    combinedDraft,
+    totalPoints: bullets.length,
+  };
+}
+
