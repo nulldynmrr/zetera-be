@@ -35,6 +35,7 @@ router.post("/:id/outline/generate", outlineController.generateBlueprint);
 router.get("/:id/outline/:itemId/pool-journals", outlineController.getPoolJournals);
 router.post("/:id/outline/:itemId/generate", outlineController.generateItemBlueprint);
 router.post("/:id/outline/:itemId/synthesize-points", outlineController.synthesizeAllOutlinePoints);
+router.post("/:id/outline/:itemId/sync-sistematika", outlineController.syncSistematikaWithDatabase);
 router.patch("/:id/outline/:itemId", outlineController.updateOutlineItem);
 router.post("/:id/outline/:itemId/evidence", outlineController.addEvidence);
 router.delete("/:id/outline/:itemId/evidence/:evidenceId", outlineController.removeEvidence);

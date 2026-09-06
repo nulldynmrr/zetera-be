@@ -1799,7 +1799,72 @@ function buildDefaultBlueprint(title, approachType) {
 }
 
 /**
+ * Sinkronkan butir Sistematika Penulisan secara otomatis dengan seluruh BAB di database
+ */
+export async function syncSistematikaOutlineItem({ projectId, itemId }) {
+  const item = await prisma.researchOutlineItem.findFirst({
+    where: { projectId, itemId },
+  });
+  if (!item) throw new Error("Item outline tidak ditemukan");
+
+  const allItems = await prisma.researchOutlineItem.findMany({
+    where: { projectId },
+    orderBy: [{ bab: "asc" }, { order: "asc" }],
+  });
+
+  const babMap = {};
+  for (const it of allItems) {
+    if (it.itemId === item.itemId || it.tag === "sistematika_penulisan") continue;
+    const b = it.bab || parseInt(it.itemId?.split(".")[0]) || 1;
+    if (!babMap[b]) babMap[b] = [];
+    babMap[b].push(it);
+  }
+
+  const babNumbers = Object.keys(babMap).map(Number).sort((a, b) => a - b);
+  const toRoman = (num) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][num - 1] || `${num}`;
+  const babLabels = {
+    1: "PENDAHULUAN",
+    2: "LANDASAN TEORI",
+    3: "METODOLOGI PENELITIAN",
+    4: "HASIL DAN PEMBAHASAN",
+    5: "KESIMPULAN DAN SARAN",
+    6: "SIMPULAN DAN SARAN",
+  };
+
+  const bullets = babNumbers.map((bNum) => {
+    const bTitle = babLabels[bNum] || `BAB ${bNum}`;
+    const subItems = babMap[bNum];
+    const subListStr = subItems.map((s) => `${s.itemId} ${s.title}`).join(", ");
+    return {
+      step: `BAB ${toRoman(bNum)} — ${bTitle}: Menjelaskan isi dan alur sub-bab (${subListStr}).`,
+      searchQuery: `BAB ${toRoman(bNum)} ${bTitle}`,
+    };
+  });
+
+  const updatedTask = {
+    ...(item.researchTask || {}),
+    what: "Ringkasan sistematika struktur bab per bab yang tersaji dalam dokumen ini sesuai daftar isi resmi",
+    why: "Memberikan roadmap penulisan yang runtut bagi dosen penguji dan pembaca",
+    how: "Tuliskan 1–2 paragraf narasi terstruktur per bab tanpa sitasi pustaka",
+    bulletInstructions: bullets,
+    targetEvidence: 0,
+    evidenceType: [],
+    searchQueries: [],
+  };
+
+  const updated = await prisma.researchOutlineItem.update({
+    where: { id: item.id },
+    data: {
+      researchTask: updatedTask,
+    },
+  });
+
+  return updated;
+}
+
+/**
  * Sintesis Otomatis Seluruh Poin Instruksi Sub-bab Berdasarkan Jurnal Pool Terverifikasi DOI
+ * Khusus Sistematika Penulisan: disinkronkan langsung dari seluruh BAB di daftar isi database tanpa sitasi.
  */
 export async function synthesizeAllOutlinePoints({ projectId, userId, itemId }) {
   const project = await prisma.researchProject.findFirst({
@@ -1825,6 +1890,141 @@ export async function synthesizeAllOutlinePoints({ projectId, userId, itemId }) 
   });
 
   if (!item) throw new Error(`Outline item ${itemId} tidak ditemukan`);
+
+  const toRoman = (num) => ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][num - 1] || `${num}`;
+
+  // ── Penanganan Khusus: Sistematika Penulisan (Sinkron 100% dari Daftar Isi Database) ──
+  const isSistematika =
+    item.tag === "sistematika_penulisan" ||
+    item.itemId === "1.7" ||
+    (item.title && item.title.toLowerCase().includes("sistematika"));
+
+  if (isSistematika) {
+    const allItems = await prisma.researchOutlineItem.findMany({
+      where: { projectId },
+      orderBy: [{ bab: "asc" }, { order: "asc" }],
+    });
+
+    const babMap = {};
+    for (const it of allItems) {
+      if (it.itemId === item.itemId || it.tag === "sistematika_penulisan") continue;
+      const b = it.bab || parseInt(it.itemId?.split(".")[0]) || 1;
+      if (!babMap[b]) babMap[b] = [];
+      babMap[b].push(it);
+    }
+
+    const babNumbers = Object.keys(babMap).map(Number).sort((a, b) => a - b);
+    const babLabels = {
+      1: "PENDAHULUAN",
+      2: "LANDASAN TEORI",
+      3: "METODOLOGI PENELITIAN",
+      4: "HASIL DAN PEMBAHASAN",
+      5: "KESIMPULAN DAN SARAN",
+      6: "SIMPULAN DAN SARAN",
+    };
+
+    const sistematikaBullets = babNumbers.map((bNum) => {
+      const bTitle = babLabels[bNum] || `BAB ${bNum}`;
+      const subItems = babMap[bNum];
+      const subListStr = subItems.map((s) => `${s.itemId} ${s.title}`).join(", ");
+      return {
+        step: `BAB ${toRoman(bNum)} — ${bTitle}: Rangkum alur dan fokus isi sub-bab (${subListStr}) secara komprehensif.`,
+        babNumber: bNum,
+        babTitle: bTitle,
+        subListStr,
+      };
+    });
+
+    const prompt = `Anda adalah Asisten Metodolog Skripsi Ahli (Zetera AI).
+Tugas Anda adalah menyusun narasi SISTEMATIKA PENULISAN untuk skripsi:
+- Judul Skripsi: "${project.title}"
+- Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
+- Pendekatan: "${project.approachType || "QUANTITATIVE"}"
+
+STRUKTUR DAFTAR ISI RESMI SKRIPSI YANG TERDAFTAR DI DATABASE PROYEK:
+${sistematikaBullets.map((b) => `- BAB ${toRoman(b.babNumber)} ${b.babTitle}: memuat sub-bab [ ${b.subListStr} ]`).join("\n")}
+
+ATURAN WAJIB AKADEMIS:
+1. Tulis narasi paragraf ringkas, elegan, dan kohesif untuk SETIAP BAB (${sistematikaBullets.length} Bab di atas). Jelaskan secara runtut apa yang dibahas pada bab tersebut berdasarkan sub-bab resminya.
+2. DILARANG KERAS MENYERTAKAN SITASI JURNAL ATAU NOMOR KURUNG SIKU [1], [2], DST. Sistematika Penulisan adalah roadmap struktur dokumen penelitian, bukan kutipan literatur.
+3. Gunakan bahasa Indonesia formal akademis baku (EYD).
+4. Format output WAJIB JSON murni:
+{
+  "pointAnswers": [
+    ${sistematikaBullets.map((b, idx) => `{
+      "index": ${idx},
+      "text": "BAB ${toRoman(b.babNumber)} ${b.babTitle}: Menguraikan...",
+      "citedJournals": []
+    }`).join(",\n    ")}
+  ],
+  "combinedDraft": "Sistematika penulisan skripsi ini disusun secara sistematis ke dalam ${sistematikaBullets.length} bab sebagai berikut:\\n\\n..."
+}`;
+
+    const aiRes = await executeAiCompletion({
+      featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+      maxTokens: 3200,
+      jsonMode: true,
+      userId,
+      projectId,
+    });
+
+    const parsed = parseJsonFromText(aiRes.content || "");
+    let pointAnswers = [];
+    let combinedDraft = "";
+
+    if (parsed && Array.isArray(parsed.pointAnswers) && parsed.pointAnswers.length > 0) {
+      pointAnswers = parsed.pointAnswers.map((p, idx) => ({
+        index: typeof p.index === "number" ? p.index : idx,
+        text: (p.text || "").trim(),
+        citedJournals: [],
+      }));
+      combinedDraft = (parsed.combinedDraft || "").trim();
+    } else {
+      pointAnswers = sistematikaBullets.map((b, idx) => ({
+        index: idx,
+        text: `BAB ${toRoman(b.babNumber)} ${b.babTitle}: Membahas secara mendalam mengenai ${b.subListStr.toLowerCase()}.`,
+        citedJournals: [],
+      }));
+      combinedDraft = "Sistematika penulisan skripsi ini disusun sebagai berikut:\n\n" + pointAnswers.map((p) => p.text).join("\n\n");
+    }
+
+    if (!combinedDraft && pointAnswers.length > 0) {
+      combinedDraft = "Sistematika penulisan skripsi ini disusun sebagai berikut:\n\n" + pointAnswers.map((p) => p.text).join("\n\n");
+    }
+
+    // Perbarui bulletInstructions pada item agar selaras 100% dengan BAB di database
+    const updatedTask = {
+      ...(item.researchTask || {}),
+      what: "Ringkasan alur struktur bab per bab yang tersaji dalam dokumen ini sesuai daftar isi resmi",
+      why: "Memberikan roadmap penulisan yang runtut bagi dosen penguji dan pembaca",
+      how: "Tuliskan 1–2 paragraf narasi terstruktur per bab tanpa sitasi pustaka",
+      bulletInstructions: sistematikaBullets.map((b) => ({
+        step: b.step,
+        searchQuery: `BAB ${b.babNumber} ${b.babTitle}`,
+      })),
+      targetEvidence: 0,
+      evidenceType: [],
+      searchQueries: [],
+    };
+
+    await prisma.researchOutlineItem.update({
+      where: { id: item.id },
+      data: {
+        researchTask: updatedTask,
+        userNotes: combinedDraft,
+        status: "IN_PROGRESS",
+      },
+    });
+
+    return {
+      pointAnswers,
+      combinedDraft,
+      totalPoints: sistematikaBullets.length,
+      isSistematika: true,
+    };
+  }
 
   const task = item.researchTask || {};
   let bullets = Array.isArray(task.bulletInstructions) && task.bulletInstructions.length > 0

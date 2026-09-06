@@ -117,5 +117,17 @@ export async function synthesizeAllOutlinePoints(req, res) {
   }
 }
 
+// ── Sync Sistematika Penulisan with Database Outline ──
+export async function syncSistematikaWithDatabase(req, res) {
+  try {
+    const { id: projectId, itemId } = req.params;
+    const result = await outlineService.syncSistematikaOutlineItem({ projectId, itemId });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+
 
 
