@@ -262,6 +262,22 @@ async function main() {
       primaryModelId: zaiFlash.id,
       fallbackModelId: null,
     },
+    {
+      code: "PROPOSAL_SECTION_SYNTHESIS",
+      label: "Sintesis & Parafrase Naskah Proposal",
+      description: "Pemolesan, proofreading EYD V, dan parafrase akademik naskah tanpa mengubah makna",
+      baseCreditCost: 2,
+      primaryModelId: xaiReasoning.id,
+      fallbackModelId: xaiFast.id,
+    },
+    {
+      code: "PARAPHRASE_ACADEMIC",
+      label: "Parafrase Akademik Tanpa Mengubah Makna",
+      description: "Parafrase kalimat ilmiah formal berstandar EYD V dengan preservasi 100% makna dan sitasi",
+      baseCreditCost: 2,
+      primaryModelId: xaiReasoning.id,
+      fallbackModelId: xaiFast.id,
+    },
   ];
 
   for (const item of featuresList) {

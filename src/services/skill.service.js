@@ -124,6 +124,7 @@ export async function runSkill({
     "ai_spellcheck",
     "plagiarism_check",
     "paraphrase",
+    "paraphrase_academic",
     "citation_generator",
   ];
 
@@ -206,11 +207,25 @@ export async function runSkill({
       }
     }
 
-    case "paraphrase": {
-      // Tier Paid: Tombol Bagusin (rewrite tone akademik, hapus redundansi, wajib pertahankan sitasi)
-      const promptTemplate = await resolvePrompt("paraphrase", "feature");
-      const systemPrompt = promptTemplate?.systemPrompt ||
-        "Anda adalah Penulis Akademik Indonesia Senior. Parafrasekan naskah dengan tone formal-objektif, kepadatan argumen, dan WAJIB PRESERVASI seluruh marker sitasi apa adanya.";
+    case "paraphrase":
+    case "paraphrase_academic": {
+      // Tier Paid: Parafrase Akademik Tanpa Mengubah Makna (Preservasi 100% makna & sitasi)
+      const promptTemplate =
+        (await resolvePrompt("PARAPHRASE_ACADEMIC", "skill").catch(() => null)) ||
+        (await resolvePrompt("paraphrase", "feature").catch(() => null));
+
+      const systemPrompt =
+        promptTemplate?.systemPrompt ||
+        `Anda adalah Pakar Parafrase Akademik Indonesia & Senior Scientific Editor.
+Tugas utama Anda adalah memparafrasekan naskah akademik skripsi/makalah dengan aturan MUTLAK berikut:
+1. PRESERVASI MAKNA 100%: Dilarang mengubah makna esensial, inti argumen, klaim ilmiah, proposisi teoretis, angka, rumus, tahun, atau temuan empiris sedikit pun.
+2. WAJIB PERTAHANKAN SELURUH SITASI & RUJUKAN: Penanda sitasi seperti (Nama, Tahun), (Nama dkk., Tahun), nomor kurung siku [1], atau catatan rujukan HARUS dipertahankan persis pada posisinya yang relevan.
+3. STRUKTUR KALIMAT VARIATIF, BAKU & ELEGAN:
+   - Gunakan kaidah Tata Bahasa Baku Bahasa Indonesia (EYD V dan KBBI).
+   - Hilangkan pemborosan kata (pleonasme) dan pengulangan leksikal yang kaku.
+   - Ubah kalimat pasif berbelit-belit menjadi konstruksi kalimat yang lebih tegas, lugas, dan mengalir kohesif antar-paragraf.
+   - Hindari gaya bahasa santai atau terjemahan mesin yang kaku.
+4. FORMAT OUTPUT: Berikan HANYA teks naskah hasil parafrase tanpa kalimat pembuka, tanpa penutup, dan tanpa tanda kutip pembungkus.`;
 
       const aiRes = await executeAiCompletion({
         featureCode: "PROPOSAL_SECTION_SYNTHESIS",
@@ -220,10 +235,10 @@ export async function runSkill({
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: `Parafrasekan dan tingkatkan (polish) naskah berikut agar bernilai ilmiah tinggi, baku, dan mengalir secara alami. Pertahankan penanda sitasi:\n\n${textToProcess}`,
+            content: `Parafrasekan naskah akademik berikut dengan tetap mempertahankan 100% makna esensial dan seluruh penanda sitasinya:\n\n${textToProcess}`,
           },
         ],
-        temperature: 0.25,
+        temperature: 0.2,
         maxTokens: 3500,
       });
 

@@ -32,6 +32,43 @@ export async function resolveModelForFeature(featureCode) {
   });
 
   if (!feature) {
+    // Dynamic auto-healing: Cari model paid aktif yang tersedia (xai-grok-reasoning / xai-grok-fast)
+    const paidModel =
+      (await prisma.aiModelConfig.findFirst({
+        where: { isPaid: true, isActive: true },
+        orderBy: { priceInputPerM: "desc" },
+      })) ||
+      (await prisma.aiModelConfig.findFirst({ where: { isActive: true } }));
+
+    if (paidModel) {
+      const newFeature = await prisma.researchFeature.upsert({
+        where: { code: featureCode },
+        update: {},
+        create: {
+          code: featureCode,
+          label: featureCode.replace(/_/g, " "),
+          description: `Rute fitur AI ${featureCode}`,
+          baseCreditCost: 2,
+          isActive: true,
+        },
+      });
+
+      await prisma.featureRouting.upsert({
+        where: { featureId: newFeature.id },
+        update: { primaryModelId: paidModel.id },
+        create: {
+          featureId: newFeature.id,
+          primaryModelId: paidModel.id,
+        },
+      });
+
+      return {
+        feature: newFeature,
+        primaryModel: paidModel,
+        fallbackModel: null,
+      };
+    }
+
     throw new Error(`Fitur riset "${featureCode}" tidak ditemukan.`);
   }
 

@@ -161,6 +161,15 @@ export async function verifyBalance(userId, requiredCredits = 0) {
     throw err;
   }
 
+  // Admin akun memiliki hak akses tak terbatas untuk pengujian & administrasi
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  if (user?.role === "ADMIN") {
+    return { success: true, currentBalance: 999999, requiredCredits, isAdmin: true };
+  }
+
   const totalRemaining = await prisma.userCreditBalance.aggregate({
     where: { userId },
     _sum: { creditsRemaining: true },
