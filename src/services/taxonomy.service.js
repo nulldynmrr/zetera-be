@@ -313,8 +313,8 @@ export const SUBCHAPTER_TAXONOMY = {
  * Normalisasi string untuk pencocokan taksonomi
  */
 function normalizeText(str) {
-  if (!str) return "";
-  return str
+  if (str === null || str === undefined) return "";
+  return String(str)
     .toLowerCase()
     .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ")

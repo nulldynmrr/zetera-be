@@ -370,8 +370,8 @@ export async function generateItemBlueprint({ projectId, userId, itemId }) {
   
   // Ambil resep modeling dari database (atau fallback ke default)
   const dbGuides = await getAllSubchapterGuides();
-  const activeGuides = dbGuides || SUBCHAPTER_MODELING_GUIDES;
-  const tagToUse = item.tag || resolveSubchapterTag(item.title, item.bab);
+  const resolved = resolveSubchapterTag(item.title, item.itemId || item.bab);
+  const tagToUse = typeof item.tag === "string" ? item.tag : (resolved?.tag || null);
   const directGuide = activeGuides[item.itemId] || (tagToUse ? activeGuides[tagToUse] : null);
   const parentCode = item.itemId.split(".").slice(0, 2).join(".");
   const parentGuide = activeGuides[parentCode] || activeGuides["2.1"];

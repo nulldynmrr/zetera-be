@@ -124,16 +124,17 @@ export async function saveCustomOutline(projectId, userId, customOutline) {
     customOutline.forEach((bab) => {
       if (Array.isArray(bab.subChapters)) {
         bab.subChapters.forEach((sub) => {
-          const babNum = bab.babNumber || bab.number || 1;
-          const resolvedTag = sub.tag || resolveSubchapterTag(sub.title || sub.name, babNum);
+          const babNum = Number(bab.babNumber || bab.number || 1);
+          const resolved = resolveSubchapterTag(sub.title || sub.name, sub.itemId || `${babNum}.${orderCounter}`);
+          const tagString = typeof sub.tag === "string" ? sub.tag : (resolved?.tag || null);
           flatItems.push({
-            itemId: sub.itemId || sub.id,
-            title: sub.title || sub.name,
+            itemId: String(sub.itemId || sub.id || `${babNum}.${orderCounter}`),
+            title: String(sub.title || sub.name || ""),
             bab: babNum,
-            depth: sub.depth || (sub.itemId?.split(".").length || 2),
+            depth: Number(sub.depth || (String(sub.itemId || "").split(".").length || 2)),
             order: orderCounter++,
-            tag: resolvedTag,
-            isCustom: sub.isCustom !== undefined ? sub.isCustom : true,
+            tag: tagString,
+            isCustom: sub.isCustom !== undefined ? Boolean(sub.isCustom) : Boolean(resolved?.isCustom),
           });
         });
       }
