@@ -1203,7 +1203,24 @@ Eksekusi perintah di atas dan kembalikan teks hasil revisi beserta penjelasannya
     });
 
     const parsed = parseJsonFromText(res.content || "");
-    const revisedContent = parsed?.revisedContent || res.content;
+    let revisedContent = "";
+    if (parsed && typeof parsed === "object") {
+      revisedContent = typeof parsed.revisedContent === "string" ? parsed.revisedContent.trim() : "";
+    } else {
+      const trimmed = (res.content || "").trim();
+      // Pastikan bukan raw JSON
+      if (!trimmed.startsWith("{") && !trimmed.endsWith("}")) {
+        revisedContent = trimmed;
+      }
+    }
+
+    // Bersihkan jika masih ada leak JSON di dalam string
+    if (revisedContent) {
+      revisedContent = revisedContent
+        .replace(/\{[\s\r\n]*"(?:revisedContent|explanation|usedCitations)"[\s\S]*?\}/gi, "")
+        .trim();
+    }
+
     const explanation = parsed?.explanation || "Teks telah diperbarui sesuai instruksi.";
 
     // Simpan ringkasan keputusan AI Writer ke memory
