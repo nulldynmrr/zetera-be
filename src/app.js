@@ -95,7 +95,16 @@ const allowedOrigins = [
   "http://localhost:3001",
   "http://127.0.0.1:3000",
   "http://127.0.0.1:3001",
+  "https://zetera.vercel.app",
 ].filter(Boolean);
+
+// Dukungan Private Network Access (PNA) untuk Chrome saat akses dari HTTPS (Vercel) ke localhost
+app.use((req, res, next) => {
+  if (req.headers["access-control-request-private-network"]) {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
+  next();
+});
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -104,15 +113,16 @@ app.use(cors({
     if (
       allowedOrigins.includes(origin) ||
       origin.startsWith("http://localhost:") ||
-      origin.startsWith("http://127.0.0.1:")
+      origin.startsWith("http://127.0.0.1:") ||
+      origin.endsWith(".vercel.app")
     ) {
       return callback(null, true);
     }
-    return callback(new Error(`CORS Policy: Origin '${origin}' tidak diizinkan`), false);
+    return callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Access-Control-Request-Private-Network"],
 }));
 
 app.use(express.json({ limit: "50mb" }));
