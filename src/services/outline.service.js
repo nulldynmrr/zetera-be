@@ -4,6 +4,7 @@ import { parseJsonFromText } from "../lib/groq-config.js";
 import { executeAiCompletion } from "./ai-router.service.js";
 import { buildMemoryContext, updateCitationMap, updateTocSnapshot } from "./memory.service.js";
 import { getAllSubchapterGuides, getSkillPrompt } from "./prompt.service.js";
+import { resolveSubchapterTag } from "./taxonomy.service.js";
 
 function getGroqClient() {
   const apiKey =
@@ -370,10 +371,11 @@ export async function generateItemBlueprint({ projectId, userId, itemId }) {
   // Ambil resep modeling dari database (atau fallback ke default)
   const dbGuides = await getAllSubchapterGuides();
   const activeGuides = dbGuides || SUBCHAPTER_MODELING_GUIDES;
-  const directGuide = activeGuides[item.itemId];
+  const tagToUse = item.tag || resolveSubchapterTag(item.title, item.bab);
+  const directGuide = activeGuides[item.itemId] || (tagToUse ? activeGuides[tagToUse] : null);
   const parentCode = item.itemId.split(".").slice(0, 2).join(".");
   const parentGuide = activeGuides[parentCode] || activeGuides["2.1"];
-  const guideToUse = directGuide || {
+  const guideToUse = directGuide || parentGuide || {
     name: item.title,
     steps: [
       `Kaji konsep fundamental, definisi teoretis, dan ruang lingkup mengenai "${item.title}" dalam konteks "${project.title}".`,

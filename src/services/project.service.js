@@ -1,4 +1,5 @@
 import prisma from "../lib/prisma.js";
+import { resolveSubchapterTag } from "./taxonomy.service.js";
 
 export async function getUserProjects(userId) {
   return prisma.researchProject.findMany({
@@ -123,12 +124,16 @@ export async function saveCustomOutline(projectId, userId, customOutline) {
     customOutline.forEach((bab) => {
       if (Array.isArray(bab.subChapters)) {
         bab.subChapters.forEach((sub) => {
+          const babNum = bab.babNumber || bab.number || 1;
+          const resolvedTag = sub.tag || resolveSubchapterTag(sub.title || sub.name, babNum);
           flatItems.push({
             itemId: sub.itemId || sub.id,
             title: sub.title || sub.name,
-            bab: bab.babNumber || bab.number,
+            bab: babNum,
             depth: sub.depth || (sub.itemId?.split(".").length || 2),
             order: orderCounter++,
+            tag: resolvedTag,
+            isCustom: sub.isCustom !== undefined ? sub.isCustom : true,
           });
         });
       }
@@ -164,6 +169,8 @@ export async function saveCustomOutline(projectId, userId, customOutline) {
               bab: item.bab,
               depth: item.depth,
               order: item.order,
+              tag: item.tag || existing.tag,
+              isCustom: item.isCustom,
             },
           });
         } else {
@@ -177,6 +184,8 @@ export async function saveCustomOutline(projectId, userId, customOutline) {
               bab: item.bab,
               depth: item.depth,
               order: item.order,
+              tag: item.tag,
+              isCustom: item.isCustom,
               status: "EMPTY",
               researchTask: {
                 what: `Kaji ${item.title} yang terikat secara spesifik pada topik "${cleanTitle}"`,
