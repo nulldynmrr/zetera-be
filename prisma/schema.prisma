@@ -169,6 +169,7 @@ model Journal {
   linkPreviewImage String?           @db.VarChar(1000)
   linkPreviewTitle String?           @db.VarChar(500)
   citedByCount     Int?
+  cslJson          Json?             // Format CSL-JSON (§2.3 Zetera Memory Plan)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -227,6 +228,39 @@ model JournalCitationEvidence {
   @@map("journal_citation_evidences")
 }
 
+// ── Language Style Ruleset (§12.1 Zetera Memory Plan) ──
+model LanguageStyleRuleset {
+  id                      String   @id @default(cuid())
+  name                    String   @db.VarChar(150)
+  register                String   @default("formal_baku") @db.VarChar(50) // formal_baku | semi_formal
+  selfReference           String   @default("third_person_penulis") @db.VarChar(50) // third_person_penulis | passive_voice | first_person_plural
+  hedgingRequired         Boolean  @default(false)
+  bannedPhrases           Json?    // ["saya", "aku", "menurut saya", "gue", "kayaknya"]
+  religiousOpeningAllowed Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  templates               ProposalTemplate[]
+
+  @@map("language_style_rulesets")
+}
+
+// ── Academic Rules Policy (§12.2 Zetera Memory Plan) ──
+model AcademicRulesPolicy {
+  id                    String   @id @default(cuid())
+  name                  String   @db.VarChar(150)
+  minReferenceCount     Int?     // Jumlah minimal referensi
+  referenceRecencyYears Int?     // Rentang tahun maksimal referensi terkini
+  mandatoryFrontMatter  Json?    // Checklist halaman wajib
+  requiresDualCalendar  Boolean  @default(false) // e.g. "2020 M / 1442 H"
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  templates             ProposalTemplate[]
+
+  @@map("academic_rules_policies")
+}
+
 // ── Proposal Templates (Library) ─────────────────────
 // Masalah 3: system-managed + user-cloneable templates
 // ownerId null = system default template
@@ -244,10 +278,22 @@ model ProposalTemplate {
   packageAssetId  String?        @unique
   // Overhaul v2: Penomoran bertingkat konfigurable per institusi
   numberingConfig Json?          // { bab, level2, level3, level4, level5, level6 }
+
+  // ── Multi-Campus & Multi-Prodi Settings (§2.0) ──
+  universityName       String?        @db.VarChar(200)
+  prodiName            String?        @db.VarChar(150)
+  degreeLevel          String?        @default("S1") @db.VarChar(50)
+  numberingStyle       String?        @default("decimal") @db.VarChar(50) // decimal | lettered
+  defaultCitationStyle String?        @default("ieee") @db.VarChar(50)   // ieee | apa6 | apa7 | footnote
+  languageStyleId      String?
+  academicRulesId      String?
+
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   packageAsset    TemplatePackageAsset?   @relation(fields: [packageAssetId], references: [id], onDelete: SetNull)
+  languageStyle   LanguageStyleRuleset?   @relation(fields: [languageStyleId], references: [id], onDelete: SetNull)
+  academicRules   AcademicRulesPolicy?    @relation(fields: [academicRulesId], references: [id], onDelete: SetNull)
   sections        ProposalTemplateSection[]
   variables       TemplateVariable[]
   projects        ResearchProject[]
@@ -303,20 +349,25 @@ enum VariableType {
   IMAGE
 }
 
-// ── Proposal Template Sections ────────────────────────
+// ── Proposal Template Sections (Section Type Registry, §2.1) ──
 model ProposalTemplateSection {
-  id           String   @id @default(cuid())
-  templateId   String
-  order        Int
-  title        String   @db.VarChar(200)
-  isOptional   Boolean  @default(false)
-  guidanceText String?  @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  templateId          String
+  sectionType         String   @default("custom") @db.VarChar(100) // latar_belakang, rumusan_masalah, dll (§2.1)
+  order               Int
+  title               String   @db.VarChar(200) // Heading label baku (§2.1)
+  purposeDescription  String?  @db.Text // Penjelasan 1-2 kalimat tujuan section (§2.1)
+  citationPolicy      String   @default("optional") @db.VarChar(50) // required | optional | none (§2.1)
+  contextDependencies Json?    // Array string section_type yg wajib di-inject sbg context (§2.1)
+  isOptional          Boolean  @default(false)
+  guidanceText        String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   template     ProposalTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
   outlineItems ResearchOutlineItem[]
 
+  @@index([templateId, sectionType])
   @@map("proposal_template_sections")
 }
 
@@ -326,7 +377,7 @@ enum UserRole {
   USER
 }
 
-// ── Research Outline Items (Tahap 5: Research Blueprint) ────
+// ── Research Outline Items (Tahap 5: Research Blueprint & Node Memory) ────
 model ResearchOutlineItem {
   id                String            @id @default(cuid())
   projectId         String
@@ -346,6 +397,14 @@ model ResearchOutlineItem {
   isLocked          Boolean           @default(false)
   dependsOn         Json?             // array of itemId strings
   templateSectionId String?
+
+  // ── Node Memory & Source Tracking (§2.2 Zetera Memory Plan) ──
+  summary           String?           @db.Text // 2-4 kalimat ringkasan auto-generated (§2.2)
+  keyClaims         Json?             // Array poin spesifik (angka, definisi, variabel) (§2.2)
+  citedSourceIds    Json?             // Array DOI/ID jurnal yang benar-benar disitasi di node (§2.2)
+  summaryStale      Boolean           @default(false) // true jika konten berubah tapi summary belum di-regenerate (§2.2)
+  lastGeneratedAt   DateTime?
+
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
