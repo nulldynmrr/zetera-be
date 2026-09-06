@@ -517,6 +517,122 @@ export async function getPoolJournalsForItem(projectId, userId, itemId) {
   });
 }
 
+/**
+ * 1.c Match Pool To Instruction Point (§3: Pool Jurnal Peka)
+ * Relevansi instan tingkat butir instruksi dari pool lokal tanpa panggil API eksternal
+ */
+const STOP_WORDS = new Set([
+  "dan", "yang", "untuk", "di", "pada", "atau", "dengan", "dari", "ke", "ini", "itu",
+  "adalah", "sebagai", "kaji", "telaah", "analisis", "definisikan", "jelaskan", "uraikan",
+  "tentang", "terkait", "secara", "dalam", "bisa", "harus", "dapat", "penelitian", "skripsi",
+  "the", "and", "of", "to", "in", "for", "on", "with", "study", "review", "research", "paper"
+]);
+
+export async function matchPoolToPoint(pointText, projectId, userId) {
+  const project = await prisma.researchProject.findFirst({
+    where: { id: projectId, ...(userId ? { userId } : {}) },
+    include: {
+      journals: {
+        where: {
+          status: { in: ["APPROVED", "CANDIDATE", "UNDER_REVIEW"] },
+          tier: { not: "EXCLUDED" },
+        },
+      },
+    },
+  });
+
+  if (!project) throw new Error("Project tidak ditemukan");
+
+  const pool = project.journals || [];
+  if (pool.length === 0) {
+    return { matches: [], topMatches: [], highestScore: 0, needsExternalSearch: true };
+  }
+
+  // Ekstrak keyword token bermakna
+  const rawTokens = (pointText || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+  const tokens = [...new Set(rawTokens)];
+
+  if (tokens.length === 0) {
+    const defaultMatches = pool.map((j) => ({
+      ...j,
+      pointScore: j.relevanceScore || 50,
+      matchJustification: "Kesesuaian topik riset proyek umum",
+    }));
+    return {
+      matches: defaultMatches,
+      topMatches: defaultMatches.slice(0, 3),
+      highestScore: defaultMatches[0]?.pointScore || 0,
+      needsExternalSearch: false,
+    };
+  }
+
+  const scored = pool.map((j) => {
+    const titleLower = (j.title || "").toLowerCase();
+    const abstractLower = (j.abstract || "").toLowerCase();
+    const findingsLower = (j.keyFindings || "").toLowerCase();
+
+    let hits = 0;
+    const hitWords = [];
+
+    tokens.forEach((token) => {
+      let tokenHit = false;
+      if (titleLower.includes(token)) {
+        hits += 3;
+        tokenHit = true;
+      }
+      if (findingsLower.includes(token)) {
+        hits += 2;
+        tokenHit = true;
+      }
+      if (abstractLower.includes(token)) {
+        hits += 1;
+        tokenHit = true;
+      }
+      if (tokenHit) hitWords.push(token);
+    });
+
+    const maxPossibleHits = tokens.length * 4;
+    const tokenScore = Math.min(100, Math.round((hits / Math.max(1, maxPossibleHits)) * 100));
+    const baseRelevance = j.relevanceScore || 50;
+    const finalScore = Math.min(100, Math.round(tokenScore * 0.65 + baseRelevance * 0.35));
+
+    return {
+      id: j.id,
+      title: j.title,
+      authors: j.authors,
+      year: j.year,
+      publication: j.publication,
+      doi: j.doi,
+      url: j.url,
+      abstract: j.abstract,
+      tier: j.tier,
+      relevanceScore: j.relevanceScore || 0,
+      pointScore: finalScore,
+      matchedKeywords: hitWords,
+      matchJustification: hitWords.length > 0
+        ? `Cocok pada kata kunci: ${hitWords.slice(0, 4).join(", ")}`
+        : "Relevansi berdasarkan topik umum skripsi",
+    };
+  });
+
+  scored.sort((a, b) => b.pointScore - a.pointScore);
+  const highestScore = scored[0]?.pointScore || 0;
+  const topMatches = scored.filter((s) => s.pointScore >= 40).slice(0, 3);
+
+  return {
+    matches: scored,
+    topMatches: topMatches.length > 0 ? topMatches : scored.slice(0, 2),
+    highestScore,
+    needsExternalSearch: highestScore < 40,
+  };
+}
+
+
 
 /**
  * 2. Get Outline — ambil semua outline items project ini

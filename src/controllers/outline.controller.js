@@ -92,3 +92,17 @@ export async function getPoolJournals(req, res) {
   }
 }
 
+// ── Smart Pool Matching to Instruction Point (§3) ─────────
+export async function matchPoolPoint(req, res) {
+  try {
+    const { id: projectId } = req.params;
+    const { pointText } = req.body;
+    const userId = req.user?.id || req.user?.sub;
+    const result = await outlineService.matchPoolToPoint(pointText, projectId, userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+

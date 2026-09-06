@@ -82,6 +82,7 @@ model ResearchProject {
   frameworkEdges FrameworkEdge[]
   journals       Journal[]
   outlineItems   ResearchOutlineItem[]
+  subchapterDrafts SubchapterDraft[]
   memory         ProjectMemory?
   citationEvidences JournalCitationEvidence[]
 
@@ -330,6 +331,10 @@ model ResearchOutlineItem {
   id                String            @id @default(cuid())
   projectId         String
   itemId            String            @db.VarChar(20)  // "1.1.1", "2.3", dll
+  tag               String?           @db.VarChar(100) // 'latar_belakang', 'identifikasi_masalah', etc.
+  isCustom          Boolean           @default(false)
+  needsReview       Boolean           @default(false)
+  recipeId          String?           @db.VarChar(100)
   title             String            @db.VarChar(255)
   bab               Int
   depth             Int               @default(1)
@@ -348,6 +353,7 @@ model ResearchOutlineItem {
   templateSection ProposalTemplateSection? @relation(fields: [templateSectionId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, itemId])
+  @@index([projectId, tag])
   @@map("research_outline_items")
 }
 
@@ -689,5 +695,44 @@ model JournalSearchCache {
 
   @@index([projectId, createdAt])
   @@map("journal_search_cache")
+}
+
+// ── 10. Subchapter Versioned Drafts & Prompt Templates ────────
+model SubchapterDraft {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String?
+  tag       String   @db.VarChar(100)
+  itemId    String?  @db.VarChar(50)
+  content   String   @db.LongText
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project ResearchProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, tag, version])
+  @@map("subchapter_drafts")
+}
+
+model PromptTemplate {
+  id                 String   @id @default(cuid())
+  tag                String   @db.VarChar(100) // 'latar_belakang', 'proofread', '__generic__', etc.
+  scope              String   @default("subchapter") @db.VarChar(50) // 'subchapter' | 'feature'
+  version            Int      @default(1)
+  isActive           Boolean  @default(true)
+  label              String   @db.VarChar(255) // "Resep Standar (8 Langkah)"
+  description        String?  @db.Text
+  systemPrompt       String?  @db.LongText
+  userPromptTemplate String?  @db.LongText
+  steps              Json?    // [{ order, instruction, variables: [] }] or string[]
+  modelTier          String   @default("paid") @db.VarChar(20) // 'free' | 'paid'
+  createdBy          String   @default("system") @db.VarChar(100) // 'system' | userId
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([tag, scope, isActive])
+  @@index([tag, scope, version])
+  @@map("prompt_templates")
 }
 

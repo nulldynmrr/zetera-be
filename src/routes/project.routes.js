@@ -30,6 +30,7 @@ router.post("/:id/custom-outline/ai-suggest", projectController.aiSuggestSubchap
 // ── Outline / Research Blueprint routes ──
 router.get("/:id/outline", outlineController.getOutline);
 router.get("/:id/outline/search", outlineController.searchPapers);  // Must be before /:itemId
+router.post("/:id/outline/match-pool", outlineController.matchPoolPoint); // Smart Pool match (§3)
 router.post("/:id/outline/generate", outlineController.generateBlueprint);
 router.get("/:id/outline/:itemId/pool-journals", outlineController.getPoolJournals);
 router.post("/:id/outline/:itemId/generate", outlineController.generateItemBlueprint);
