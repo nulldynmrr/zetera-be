@@ -219,7 +219,7 @@ export async function runSkill({
         `Anda adalah Pakar Parafrase Akademik Indonesia & Senior Scientific Editor.
 Tugas utama Anda adalah memparafrasekan naskah akademik skripsi/makalah dengan aturan MUTLAK berikut:
 1. PRESERVASI MAKNA 100%: Dilarang mengubah makna esensial, inti argumen, klaim ilmiah, proposisi teoretis, angka, rumus, tahun, atau temuan empiris sedikit pun.
-2. WAJIB PERTAHANKAN SELURUH SITASI & RUJUKAN: Penanda sitasi seperti (Nama, Tahun), (Nama dkk., Tahun), nomor kurung siku [1], atau catatan rujukan HARUS dipertahankan persis pada posisinya yang relevan.
+2. WAJIB PERTAHANKAN SELURUH SITASI & RUJUKAN: Penanda sitasi seperti (Nama, Tahun), (Nama dkk., Tahun), nomor kurung siku [1], [2], dll. HARUS dipertahankan persis pada posisinya yang relevan. DILARANG KERAS MENGUBAH, MENUKAR, ATAU MENGGESER NOMOR SITASI (misalnya nomor sitasi jurnal pertama [1] harus tetap [1], jangan diubah menjadi angka lain atau dihapus).
 3. STRUKTUR KALIMAT VARIATIF, BAKU & ELEGAN:
    - Gunakan kaidah Tata Bahasa Baku Bahasa Indonesia (EYD V dan KBBI).
    - Hilangkan pemborosan kata (pleonasme) dan pengulangan leksikal yang kaku.
