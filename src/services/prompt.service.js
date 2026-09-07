@@ -1,5 +1,6 @@
 import prisma from "../lib/prisma.js";
-import { SUBCHAPTER_TAXONOMY } from "./taxonomy.service.js";
+import { SUBCHAPTER_TAXONOMY, invalidatePromptDbCache } from "./taxonomy.service.js";
+import { getSubchapterSpecByCode } from "../subchapters/index.js";
 
 // In-memory cache for ultra-fast lookup (TTL 5 menit)
 const cache = new Map();
@@ -9,6 +10,7 @@ const CACHE_TTL = 5 * 60 * 1000;
  * 0. Invalidate in-memory prompt cache
  */
 export function invalidatePromptCache(tag = null, scope = null) {
+  invalidatePromptDbCache();
   if (!tag && !scope) {
     cache.clear();
     return;
@@ -265,14 +267,24 @@ export async function listSkillPrompts({ category, tag, search, activeOnly = fal
     orderBy: [{ category: "asc" }, { code: "asc" }],
   });
 
+  let finalPrompts = prompts;
   if (tag) {
-    return prompts.filter((p) => {
+    finalPrompts = prompts.filter((p) => {
       const tags = Array.isArray(p.tags) ? p.tags : [];
       return tags.some((t) => String(t).toLowerCase().includes(tag.toLowerCase()));
     });
   }
 
-  return prompts;
+  // Enrich with modular subchapter specs (rules & paper preview examples)
+  return finalPrompts.map((p) => {
+    const spec = getSubchapterSpecByCode(p.code);
+    return {
+      ...p,
+      paperRules: spec?.paper?.rules || null,
+      previewExample: spec?.paper?.previewExample || null,
+      slug: spec?.slug || null,
+    };
+  });
 }
 
 /**

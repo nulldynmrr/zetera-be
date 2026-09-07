@@ -4,7 +4,7 @@ import { parseJsonFromText } from "../lib/groq-config.js";
 import { executeAiCompletion } from "./ai-router.service.js";
 import { buildMemoryContext, updateCitationMap, updateTocSnapshot } from "./memory.service.js";
 import { getAllSubchapterGuides, getSkillPrompt } from "./prompt.service.js";
-import { resolveSubchapterTag } from "./taxonomy.service.js";
+import { resolveSubchapterTag, resolveSubchapterSkillPrompt } from "./taxonomy.service.js";
 
 function getGroqClient() {
   const apiKey =
@@ -1935,20 +1935,28 @@ export async function synthesizeAllOutlinePoints({ projectId, userId, itemId }) 
       };
     });
 
-    const prompt = `Anda adalah Asisten Metodolog Skripsi Ahli (Zetera AI).
-Tugas Anda adalah menyusun narasi SISTEMATIKA PENULISAN untuk skripsi:
-- Judul Skripsi: "${project.title}"
-- Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
-- Pendekatan: "${project.approachType || "QUANTITATIVE"}"
+    let customSystemPrompt = "";
+    const outlineStructureStr = sistematikaBullets
+      .map((b) => `- BAB ${toRoman(b.babNumber)} ${b.babTitle}: memuat sub-bab [ ${b.subListStr} ]`)
+      .join("\n");
 
-STRUKTUR DAFTAR ISI RESMI SKRIPSI YANG TERDAFTAR DI DATABASE PROYEK:
-${sistematikaBullets.map((b) => `- BAB ${toRoman(b.babNumber)} ${b.babTitle}: memuat sub-bab [ ${b.subListStr} ]`).join("\n")}
+    try {
+      const dbPrompt = await prisma.aiSkillPrompt.findFirst({
+        where: { code: "SUBCHAPTER_1_7", isActive: true },
+      });
+      if (dbPrompt?.systemPrompt) {
+        customSystemPrompt = dbPrompt.systemPrompt
+          .replace(/\{\{TOPIC\}\}/g, `"${project.title}" (Bidang: ${project.prodi || "Teknik Informatika / Ilmu Komputer"}, Pendekatan: ${project.approachType || "QUANTITATIVE"})`)
+          .replace(/\{\{OUTLINE_STRUCTURE\}\}/g, outlineStructureStr);
+      }
+    } catch (err) {
+      console.warn("[outlineService] Failed to load SUBCHAPTER_1_7 prompt from DB:", err?.message);
+    }
 
-ATURAN WAJIB AKADEMIS:
-1. Tulis narasi paragraf ringkas, elegan, dan kohesif untuk SETIAP BAB (${sistematikaBullets.length} Bab di atas). Jelaskan secara runtut apa yang dibahas pada bab tersebut berdasarkan sub-bab resminya.
-2. DILARANG KERAS MENYERTAKAN SITASI JURNAL ATAU NOMOR KURUNG SIKU [1], [2], DST. Sistematika Penulisan adalah roadmap struktur dokumen penelitian, bukan kutipan literatur.
-3. Gunakan bahasa Indonesia formal akademis baku (EYD).
-4. Format output WAJIB JSON murni:
+    const prompt = customSystemPrompt
+      ? `${customSystemPrompt}
+
+FORMAT OUTPUT WAJIB JSON MURNI (PENTING: combinedDraft WAJIB SATU PARAGRAF MENGALIR, bukan list):
 {
   "pointAnswers": [
     ${sistematikaBullets.map((b, idx) => `{
@@ -1957,8 +1965,37 @@ ATURAN WAJIB AKADEMIS:
       "citedJournals": []
     }`).join(",\n    ")}
   ],
-  "combinedDraft": "Sistematika penulisan skripsi ini disusun secara sistematis ke dalam ${sistematikaBullets.length} bab sebagai berikut:\\n\\n..."
+  "combinedDraft": "Sistematika penulisan skripsi ini disusun secara sistematis ke dalam ${sistematikaBullets.length} bab sebagai berikut: BAB I PENDAHULUAN menguraikan [isi bab 1]. BAB II LANDASAN TEORI membahas [isi bab 2]. BAB III METODOLOGI PENELITIAN menjelaskan [isi bab 3]. sehingga seluruh bab terhubung secara logis dan kohesif dari perumusan masalah hingga implikasi penelitian."
+}`
+      : `Anda adalah Asisten Metodolog Skripsi Ahli (Zetera AI).
+Tugas Anda adalah menyusun narasi SISTEMATIKA PENULISAN untuk skripsi:
+- Judul Skripsi: "${project.title}"
+- Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
+- Pendekatan: "${project.approachType || "QUANTITATIVE"}"
+
+STRUKTUR DAFTAR ISI RESMI SKRIPSI YANG TERDAFTAR DI DATABASE PROYEK:
+${outlineStructureStr}
+
+ATURAN WAJIB AKADEMIS:
+1. Tulis ringkasan singkat dan kohesif mengenai isi setiap BAB berdasarkan sub-bab resminya. Setiap poin berdiri sendiri (per-BAB) dan padat (2–3 kalimat).
+2. DILARANG KERAS MENYERTAKAN SITASI JURNAL ATAU NOMOR KURUNG SIKU [1], [2], DST.
+3. Gunakan bahasa Indonesia formal akademis baku (EYD).
+4. FORMAT OUTPUT PER BAB: Setiap BAB ditulis sebagai satu paragraf tersendiri di dalam "combinedDraft". Format:
+   "BAB I  NAMA BAB\nDeskripsi isi bab...\n\nBAB II  NAMA BAB\nDeskripsi isi bab...\n\n..."
+   Awali dengan 1 kalimat pengantar, lalu tiap BAB sebagai heading kapital diikuti deskripsi di bawahnya (dipisah \n\n antar bab).
+5. Format output WAJIB JSON murni:
+{
+  "pointAnswers": [
+    ${sistematikaBullets.map((b, idx) => `{
+      "index": ${idx},
+      "text": "BAB ${toRoman(b.babNumber)} ${b.babTitle}: Menguraikan...",
+      "citedJournals": []
+    }`).join(",\n    ")}
+  ],
+  "combinedDraft": "Sistematika penulisan skripsi ini disusun ke dalam ${sistematikaBullets.length} bab sebagai berikut:\\n\\nBAB I  PENDAHULUAN\\nBab ini berisikan...\\n\\nBAB II  LANDASAN TEORI\\nBab ini membahas..."
 }`;
+
+
 
     const aiRes = await executeAiCompletion({
       featureCode: "PROPOSAL_SECTION_SYNTHESIS",
@@ -1982,16 +2019,26 @@ ATURAN WAJIB AKADEMIS:
       }));
       combinedDraft = (parsed.combinedDraft || "").trim();
     } else {
+      // Fallback: per-BAB paragraph format (standard skripsi Indonesia)
       pointAnswers = sistematikaBullets.map((b, idx) => ({
         index: idx,
-        text: `BAB ${toRoman(b.babNumber)} ${b.babTitle}: Membahas secara mendalam mengenai ${b.subListStr.toLowerCase()}.`,
+        text: `BAB ${toRoman(b.babNumber)} ${b.babTitle}: Membahas ${b.subListStr.toLowerCase()}.`,
         citedJournals: [],
       }));
-      combinedDraft = "Sistematika penulisan skripsi ini disusun sebagai berikut:\n\n" + pointAnswers.map((p) => p.text).join("\n\n");
+      // Format: heading BAB kapital + deskripsi di bawahnya, dipisah \n\n antar bab
+      const intro = `Sistematika penulisan skripsi ini disusun ke dalam ${sistematikaBullets.length} bab sebagai berikut:`;
+      const babParagraphs = sistematikaBullets.map((b) => {
+        return `BAB ${toRoman(b.babNumber)}  ${b.babTitle}\nBab ini ${b.babNumber === 1 ? "berisikan" : "membahas"} ${b.subListStr.toLowerCase()}.`;
+      });
+      combinedDraft = intro + "\n\n" + babParagraphs.join("\n\n");
     }
 
     if (!combinedDraft && pointAnswers.length > 0) {
-      combinedDraft = "Sistematika penulisan skripsi ini disusun sebagai berikut:\n\n" + pointAnswers.map((p) => p.text).join("\n\n");
+      const intro = `Sistematika penulisan skripsi ini disusun ke dalam ${sistematikaBullets.length} bab sebagai berikut:`;
+      const babParagraphs = sistematikaBullets.map((b) => {
+        return `BAB ${toRoman(b.babNumber)}  ${b.babTitle}\nBab ini menguraikan ${b.subListStr.toLowerCase()}.`;
+      });
+      combinedDraft = intro + "\n\n" + babParagraphs.join("\n\n");
     }
 
     // Perbarui bulletInstructions pada item agar selaras 100% dengan BAB di database
@@ -2023,6 +2070,189 @@ ATURAN WAJIB AKADEMIS:
       combinedDraft,
       totalPoints: sistematikaBullets.length,
       isSistematika: true,
+    };
+  }
+
+  // ── Penanganan Khusus: Sub-bab BAB I Tanpa Sitasi (1.2 - 1.6) ──
+  // Identifikasi Masalah, Rumusan Masalah, Batasan Masalah, Tujuan Penelitian, Manfaat Penelitian
+  const isBab1NoCitation =
+    (item.bab === 1 || item.itemId?.startsWith("1.")) &&
+    item.itemId !== "1.1" &&
+    !item.tag?.includes("latar_belakang") &&
+    !(item.title && item.title.toLowerCase().includes("latar belakang"));
+
+  if (isBab1NoCitation) {
+    let promptCode = "SUBCHAPTER_1_2";
+    const tLower = (item.title || "").toLowerCase();
+    const tagLower = (item.tag || "").toLowerCase();
+
+    if (tagLower.includes("identifikasi") || tLower.includes("identifikasi") || item.itemId === "1.2") {
+      promptCode = "SUBCHAPTER_1_2";
+    } else if (tagLower.includes("rumusan") || tLower.includes("rumusan") || item.itemId === "1.3") {
+      promptCode = "SUBCHAPTER_1_3";
+    } else if (tagLower.includes("batasan") || tLower.includes("batasan") || item.itemId === "1.4") {
+      promptCode = "SUBCHAPTER_1_4";
+    } else if (tagLower.includes("tujuan") || tLower.includes("tujuan") || item.itemId === "1.5") {
+      promptCode = "SUBCHAPTER_1_5";
+    } else if (tagLower.includes("manfaat") || tLower.includes("manfaat") || item.itemId === "1.6") {
+      promptCode = "SUBCHAPTER_1_6";
+    }
+
+    let customSystemPrompt = "";
+    try {
+      const dbPrompt = await prisma.aiSkillPrompt.findFirst({
+        where: { code: promptCode, isActive: true },
+      });
+      if (dbPrompt?.systemPrompt) {
+        customSystemPrompt = dbPrompt.systemPrompt;
+      }
+    } catch (err) {
+      console.warn(`[outlineService] Failed to load ${promptCode} prompt from DB:`, err?.message);
+    }
+
+    const narrative = project.commonNarrative || {};
+    let relevantUserInput = "";
+    if (promptCode === "SUBCHAPTER_1_2") {
+      relevantUserInput = item.userNotes || narrative.background || "(Gunakan fenomena dan konteks dari judul dan latar belakang penelitian)";
+    } else if (promptCode === "SUBCHAPTER_1_3") {
+      relevantUserInput = narrative.purpose ? `Masukan Tujuan/Fokus Peneliti: ${narrative.purpose}` : (item.userNotes || "(Lakukan perumusan operasional 1:1 dengan arah skripsi)");
+    } else if (promptCode === "SUBCHAPTER_1_4") {
+      relevantUserInput = narrative.scope ? `Masukan Batasan Peneliti: ${narrative.scope}` : (item.userNotes || "(Tetapkan batasan ruang lingkup yang rasional dan terarah)");
+    } else if (promptCode === "SUBCHAPTER_1_5") {
+      relevantUserInput = narrative.purpose ? `Masukan Tujuan Peneliti: ${narrative.purpose}` : (item.userNotes || "(Tetapkan tujuan deklaratif terukur yang selaras 1:1 dengan rumusan masalah)");
+    } else if (promptCode === "SUBCHAPTER_1_6") {
+      relevantUserInput = item.userNotes || "(Uraikan manfaat teoretis keilmuan dan manfaat praktis lapangan)";
+    }
+
+    const task = item.researchTask || {};
+    const bullets = Array.isArray(task.bulletInstructions) && task.bulletInstructions.length > 0
+      ? task.bulletInstructions
+      : [
+          { step: `Poin analitis 1 terkait ${item.title}` },
+          { step: `Poin analitis 2 terkait ${item.title}` },
+          { step: `Poin analitis 3 terkait ${item.title}` },
+        ];
+
+    let fullPrompt = "";
+    if (customSystemPrompt) {
+      fullPrompt = customSystemPrompt
+        .replace(/\{\{TOPIC\}\}/g, `"${project.title}" (Bidang: ${project.prodi || "Teknik Informatika / Ilmu Komputer"}, Pendekatan: ${project.approachType || "QUANTITATIVE"})`)
+        .replace(/\{\{BACKGROUND_CONTEXT\}\}/g, narrative.background || `Penelitian skripsi berjudul "${project.title}"`)
+        .replace(/\{\{PROBLEM_STATEMENTS\}\}/g, narrative.purpose || narrative.background || `Kajian menyeluruh pada "${project.title}"`)
+        .replace(/\{\{USER_INPUT\}\}/g, relevantUserInput);
+    } else {
+      fullPrompt = `Anda adalah Asisten Metodolog Skripsi Ahli (Zetera AI).
+Tugas Anda adalah menyusun sub-bab akademis: ${item.itemId} (${item.title}) untuk skripsi:
+- Judul Skripsi: "${project.title}"
+- Bidang Kajian: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
+- Pendekatan: "${project.approachType || "QUANTITATIVE"}"
+- Masukan Awal Peneliti: ${relevantUserInput}
+
+PANDUAN PENYUSUNAN:
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS (Jangan langsung angka 1).
+2. Tuliskan 2-4 butir poin bernomor (1., 2., dst) yang tajam, spesifik, dan tidak template generik.
+3. Jika peneliti telah memasukkan teks awal, adopsi dan parafrasakan sedikit menjadi kalimat akademis baku.
+4. DILARANG KERAS MENYERTAKAN SITASI ATAU KURUNG SIKU [1], [2].`;
+    }
+
+    fullPrompt += `
+
+ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS BAKU SEBELUM DAFTAR BUTIR (Contoh: "Berdasarkan latar belakang masalah yang telah dijelaskan, identifikasi masalah pada penelitian ini yaitu:" atau "Adapun tujuan dari penelitian ini yaitu:").
+2. ADOPSI & PARAFRASE: Jika ada masukan peneliti di atas, adopsi ide tersebut dan parafrasakan sedikit agar menjadi kalimat ilmiah formal. Jangan ditimpa dengan teks klise generik!
+3. DILARANG KERAS MENYERTAKAN SITASI, DAFTAR PUSTAKA, ATAU TANDA KURUNG SIKU [1], [2]. Sub-bab ini TANPA SITASI!
+4. Format output WAJIB JSON murni tanpa markdown wrapper:
+{
+  "introSentence": "1 kalimat pengantar akademis pembuka sebelum butir-butir...",
+  "pointAnswers": [
+    {
+      "index": 0,
+      "text": "Isi poin 1...",
+      "citedJournals": []
+    },
+    {
+      "index": 1,
+      "text": "Isi poin 2...",
+      "citedJournals": []
+    }
+  ],
+  "combinedDraft": "Kalimat pengantar akademis...\\n1. Isi poin 1...\\n2. Isi poin 2..."
+}`;
+
+    const aiRes = await executeAiCompletion({
+      featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+      messages: [{ role: "user", content: fullPrompt }],
+      temperature: 0.25,
+      maxTokens: 3000,
+      jsonMode: true,
+      userId,
+      projectId,
+    });
+
+    const parsed = parseJsonFromText(aiRes.content || "");
+    let pointAnswers = [];
+    let combinedDraft = "";
+
+    if (parsed && Array.isArray(parsed.pointAnswers) && parsed.pointAnswers.length > 0) {
+      pointAnswers = parsed.pointAnswers.map((p, idx) => ({
+        index: typeof p.index === "number" ? p.index : idx,
+        text: (p.text || "").trim(),
+        citedJournals: [],
+      }));
+      combinedDraft = (parsed.combinedDraft || "").trim();
+    } else {
+      const intro = parsed?.introSentence || `Berdasarkan kajian penelitian ini, ${item.title.toLowerCase()} dirumuskan sebagai berikut:`;
+      pointAnswers = bullets.map((b, idx) => ({
+        index: idx,
+        text: `${b.step || b} pada objek penelitian skripsi.`,
+        citedJournals: [],
+      }));
+      combinedDraft = `${intro}\n` + pointAnswers.map((p, i) => `${i + 1}. ${p.text}`).join("\n");
+    }
+
+    // ── FIX KRITIS: Deteksi jika AI menghasilkan combinedDraft tanpa kalimat pengantar
+    // (langsung mulai "1. ..." atau "- ..." tanpa intro) dan paksa tambahkan intro
+    const startsWithNumber = /^[\d]+[\.\)]/.test(combinedDraft);
+    const startsWithDash   = /^[-•]/.test(combinedDraft);
+    const missingIntro = combinedDraft && (startsWithNumber || startsWithDash);
+
+    if (!combinedDraft || missingIntro) {
+      // Pilih kalimat pengantar yang sesuai per sub-bab
+      const defaultIntros = {
+        SUBCHAPTER_1_2: "Berdasarkan latar belakang masalah yang telah dipaparkan, identifikasi masalah pada penelitian ini adalah sebagai berikut:",
+        SUBCHAPTER_1_3: "Berdasarkan identifikasi masalah yang telah diuraikan di atas, rumusan masalah pada penelitian ini adalah sebagai berikut:",
+        SUBCHAPTER_1_4: "Untuk memberikan fokus dan kedalaman kajian yang terarah, batasan masalah pada penelitian ini adalah sebagai berikut:",
+        SUBCHAPTER_1_5: "Berdasarkan rumusan masalah yang telah ditetapkan, tujuan yang ingin dicapai dalam penelitian ini adalah sebagai berikut:",
+        SUBCHAPTER_1_6: "Hasil dari penelitian ini diharapkan dapat memberikan manfaat, baik secara teoretis maupun praktis, sebagai berikut:",
+      };
+      const introSentence =
+        parsed?.introSentence?.trim() ||
+        defaultIntros[promptCode] ||
+        `Adapun ${item.title.toLowerCase()} dalam penelitian ini adalah sebagai berikut:`;
+
+      if (missingIntro) {
+        // Tempelkan intro sebelum konten yang ada
+        combinedDraft = `${introSentence}\n${combinedDraft}`;
+      } else {
+        // combinedDraft kosong — bangun dari pointAnswers
+        combinedDraft = `${introSentence}\n` + pointAnswers.map((p, i) => `${i + 1}. ${p.text}`).join("\n");
+      }
+    }
+
+    // Simpan hasil ke database ResearchOutlineItem
+    await prisma.researchOutlineItem.update({
+      where: { id: item.id },
+      data: {
+        userNotes: combinedDraft,
+        status: "IN_PROGRESS",
+      },
+    });
+
+    return {
+      pointAnswers,
+      combinedDraft,
+      totalPoints: pointAnswers.length,
+      isCitationFree: true,
     };
   }
 
@@ -2063,12 +2293,32 @@ ATURAN WAJIB AKADEMIS:
 
   const memoryContext = await buildMemoryContext(projectId).catch(() => "");
 
+  const resolvedSkill = await resolveSubchapterSkillPrompt(
+    {
+      itemId: item.itemId,
+      title: item.title,
+      tag: item.tag,
+    },
+    prisma
+  );
+
+  const dbPrompt = resolvedSkill?.prompt;
+  let dbInstructions = "";
+  if (dbPrompt?.systemPrompt) {
+    dbInstructions = `\nPANDUAN RESEP AKADEMIK RESMI DARI DATABASE (${resolvedSkill.code} - ${dbPrompt.title}):\n${dbPrompt.systemPrompt
+      .replace(/\{\{TOPIC\}\}/g, `"${project.title}"`)
+      .replace(/\{\{BACKGROUND_CONTEXT\}\}/g, project.commonNarrative?.background || "")}\n`;
+    if (Array.isArray(dbPrompt.recipeSteps) && dbPrompt.recipeSteps.length > 0) {
+      dbInstructions += `LANGKAH-LANGKAH RESEP STANDAR DARI DATABASE:\n` + dbPrompt.recipeSteps.map((s, i) => `${i + 1}. ${s}`).join("\n") + "\n";
+    }
+  }
+
   const prompt = `Anda adalah Asisten Peneliti AI Akademis Senior (Zetera AI).
 Tugas Anda adalah MENJAWAB SEMUA BUTIR INSTRUKSI RISET (${bullets.length} Butir) untuk sub-bab: ${item.itemId} (${item.title}) pada skripsi:
 - Judul Skripsi: "${project.title}"
 - Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
 - Pendekatan: "${project.approachType || "QUANTITATIVE"}"
-
+${dbInstructions}
 DAFTAR JURNAL ILMIAH TERVERIFIKASI POOL PROYEK:
 ${journalsContext}
 

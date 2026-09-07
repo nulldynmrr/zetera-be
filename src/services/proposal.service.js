@@ -297,12 +297,20 @@ Tulisan Anda mengikuti kaidah penulisan jurnal ilmiah terindeks SINTA, bukan ter
 1. Jika mahasiswa telah menyusun draf naskah pada Outline (seperti 1.1 Latar Belakang), WAJIB pertahankan dan kembangkan argumentasi asli mahasiswa tersebut.
 2. Setiap rumusan masalah, tujuan, dan metodologi harus spesifik pada topik "${project.title}".`;
 
+  const narrative = project.commonNarrative || {};
+  const userNarrativeContext = [
+    narrative.background ? `- Masukan Latar Belakang Peneliti: "${narrative.background}"` : null,
+    narrative.purpose ? `- Masukan Tujuan Penelitian Peneliti: "${narrative.purpose}"` : null,
+    narrative.scope ? `- Masukan Batasan Masalah Peneliti: "${narrative.scope}"` : null,
+  ].filter(Boolean).join("\n");
+
   const userPrompt = `SINTESISKAN PROPOSAL TUGAS AKHIR BERIKUT:
 - Judul Skripsi: "${project.title}"
 - Bidang Kajian: "${project.field || project.prodi || "Teknik Informatika"}"
 - Pendekatan Riset: "${project.approachType || "QUANTITATIVE"}"
 - Mahasiswa: ${profile.namaLengkap} (NIM: ${profile.nim})
 - Program Studi: ${profile.programStudi}, ${profile.fakultas}, ${profile.universitas}
+${userNarrativeContext ? `\n📌 MASUKAN AWAL PENELITI (COMMON NARRATIVE):\n${userNarrativeContext}\n(Instruksi: Wajib adopsi gagasan di atas dan parafrasakan sedikit menjadi kalimat akademis baku, jangan ganti dengan teks template generik!)` : ""}
 ${userLatarBelakang ? `\n📌 DRAF ASLI MAHASISWA DARI OUTLINE (1.1 LATAR BELAKANG):\n"${userLatarBelakang}"\n(Instruksi Khusus: Pertahankan argumen, data rujukan, dan kembangkan secara utuh ke dalam bab1.latarBelakang)` : ""}
 
 STRUKTUR RESEARCH BLUEPRINT MAHASISWA:
@@ -314,6 +322,14 @@ ${edgesSummary ? `HUBUNGAN VARIABEL:\n${edgesSummary}` : ""}
 
 DAFTAR JURNAL EVIDENCE EMPIRIS YANG SUDAH DIKUMPULKAN (${literatureMatrix.length} Artikel):
 ${journalsSummary || "- Belum ada jurnal rujukan"}
+
+ATURAN KHUSUS BAB I (STRICT NO-CITATION CONSTRAINTS):
+1. HANYA 1.1 Latar Belakang yang menggunakan sitasi jurnal rujukan [1], [2], dst.
+2. Identifikasi Masalah, Rumusan Masalah, Batasan Masalah, Tujuan Penelitian, dan Manfaat Penelitian WAJIB TANPA SITASI (tidak boleh ada kurung siku [1], [2]).
+3. Pada Identifikasi Masalah, Rumusan Masalah, Batasan Masalah, dan Tujuan Penelitian:
+   - Wajib diawali 1 kalimat pengantar akademis sebelum daftar butir nomor 1., 2., dst.
+   - Rumusan Masalah dan Tujuan Penelitian harus selaras 1:1.
+   - Adopsi masukan peneliti (jika ada) dan parafrasa sedikit secara formal.
 
 FORMAT OUTPUT WAJIB JSON MURNI TANPA WRAPPER MARKDOWN:
 {
@@ -334,19 +350,10 @@ FORMAT OUTPUT WAJIB JSON MURNI TANPA WRAPPER MARKDOWN:
   },
   "bab1": {
     "latarBelakang": "Uraian latar belakang masalah yang sangat mendalam (4-6 paragraf) menghubungkan fenomena dunia nyata, urgensi digitalisasi, dan mengutip jurnal evidence di atas menggunakan sitasi IEEE [1], [2], dst...",
-    "identifikasiMasalah": [
-      "Poin identifikasi masalah 1...",
-      "Poin identifikasi masalah 2...",
-      "Poin identifikasi masalah 3..."
-    ],
-    "rumusanMasalah": [
-      "1. Pertanyaan penelitian spesifik 1...",
-      "2. Pertanyaan penelitian spesifik 2..."
-    ],
-    "tujuanPenelitian": [
-      "1. Tujuan penelitian spesifik 1...",
-      "2. Tujuan penelitian spesifik 2..."
-    ],
+    "identifikasiMasalah": "Berdasarkan latar belakang masalah yang telah dijelaskan, identifikasi masalah pada penelitian ini yaitu:\\n1. Poin identifikasi masalah 1...\\n2. Poin identifikasi masalah 2...",
+    "rumusanMasalah": "Berdasarkan permasalahan yang telah diidentifikasi, maka rumusan masalah dalam penelitian ini adalah sebagai berikut:\\n1. Bagaimana cara...\\n2. Bagaimana...",
+    "batasanMasalah": "Agar pembahasan dalam penelitian ini lebih terarah dan fokus pada sasaran yang ingin dicapai, maka batasan masalah dalam penelitian ini ditetapkan sebagai berikut:\\n1. Penelitian dibatasi pada...\\n2. Pengujian menggunakan...",
+    "tujuanPenelitian": "Adapun tujuan dari penelitian ini yaitu:\\n1. Melakukan analisis...\\n2. Merancang...",
     "manfaatPenelitian": {
       "teoretis": "Uraian kontribusi teoretis akademis...",
       "praktis": "Uraian manfaat praktis aplikatif..."

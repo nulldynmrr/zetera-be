@@ -335,11 +335,14 @@ export async function refineProposalNarrative({
   approachType = "QUANTITATIVE",
   approachConfig = {},
   commonNarrative = {},
+  currentBackground = "",
+  currentPurpose = "",
+  currentScope = "",
   userId = null,
 }) {
-  const currentBg = commonNarrative?.background?.trim() || "";
-  const currentPurpose = commonNarrative?.purpose?.trim() || "";
-  const currentScope = commonNarrative?.scope?.trim() || "";
+  const currentBg = (commonNarrative?.background || currentBackground || "").trim();
+  const currentPurp = (commonNarrative?.purpose || currentPurpose || "").trim();
+  const currentScp = (commonNarrative?.scope || currentScope || "").trim();
 
   // Ringkas konfigurasi pendekatan untuk konteks AI
   let approachDetails = `Pendekatan: ${approachType}`;
@@ -353,41 +356,51 @@ export async function refineProposalNarrative({
   }
 
   const systemPrompt = `Anda adalah Pakar Metodologi Penelitian & Dosen Pembimbing Skripsi Akademik Terkemuka (Zetera AI).
-TUGAS UTAMA: Periksa, perbaiki, dan sempurnakan draf narasi awal proposal skripsi mahasiswa (Latar Belakang Singkat, Tujuan Penelitian, dan Batasan Masalah) agar memenuhi standar mutu akademik universitas.
+TUGAS ANDA: Melakukan BRAINSTORMING MENDALAM & MENYEMPURNAKAN draf awal narasi proposal skripsi mahasiswa (Latar Belakang Singkat, Tujuan Penelitian, dan Batasan Masalah) agar kontekstual, tajam, dan memenuhi standar mutu akademik universitas.
 
-PANDUAN KRITIS PERBAIKAN INPUT:
-1. Jika mahasiswa menulis singkat, minim, tidak baku, atau bernada asal-asalan (contoh: menulis 'Banyak', 'bagus', 'mau tahu aja', atau kata tunggal/kosong), Anda WAJIB merumuskan ulang menjadi teks akademik formal berbobot ilmiah tinggi.
-2. LATAR BELAKANG SINGKAT (background):
-   - 2 sampai 3 kalimat bernas dengan struktur: (Kalimat 1: Fenomena nyata/urgensi tema) + (Kalimat 2: Problem/research gap) + (Kalimat 3: Kontribusi yang diajukan dalam penelitian ini).
-   - Wajib secara eksplisit menyebut variabel/fokus dari judul: "${title}".
-3. TUJUAN PENELITIAN (purpose):
-   - 2 sampai 3 butir tujuan penelitian baku, diawali kata kerja operasional terukur (contoh: '1. Menganalisis pengaruh...', '2. Mengidentifikasi faktor...', '3. Merumuskan rekomendasi...').
-4. BATASAN MASALAH (scope):
-   - Rumuskan batasan operasional penelitian yang realistis dan terukur (lingkup populasi/subjek, batasan variabel/indikator, atau batasan metodologis).
+PANDUAN UTAMA BRAINSTORMING AKADEMIS:
+1. SANGAT PENTING: DILARANG KERAS MENYERTAKAN SITASI PUSTAKA, NOMOR KURUNG SIKU [1], [2], ATAU KLAIM NAMA PENULIS TERTENTU. Narasi umum tahap ini adalah murni perumusan logika ide penelitian, BUKAN kutipan literatur.
+2. JANGAN GUNAKAN TEMPLATE GENERIK/ROBOTIK (HINDARI kalimat klise seperti: "Penelitian mengenai X memiliki urgensi penting untuk menjawab permasalahan pada bidang Y..."). Anda WAJIB menganalisis secara mendalam kata kunci pada judul skripsi, objek spesifik, metode, dan dinamika riil di bidang ${field}.
+3. ADAPTASI & PARAFRASA INPUT MAHASISWA:
+   - Jika mahasiswa sudah menuliskan ide/draft (Latar Belakang, Tujuan, atau Batasan): Gunakan ide inti mahasiswa tersebut dan poles (parafrasa akademis) menjadi kalimat ilmiah yang baku, elegan, dan terstruktur.
+   - Jika draf mahasiswa masih kosong atau sangat minim/singkat: Lakukan brainstorming konstruktif yang konkret, relevan, dan realistis sesuai topik "${title}".
+4. LATAR BELAKANG SINGKAT (background):
+   - Tulis 2 sampai 3 kalimat bernas dan padat masalah:
+     * Kalimat 1: Fenomena nyata di lapangan atau urgensi operasional terkait topik.
+     * Kalimat 2: Problem spesifik, kendala pengguna/sistem, atau kesenjangan yang terjadi.
+     * Kalimat 3: Solusi atau fokus penelitian yang diajukan untuk memecahkan problem tersebut.
+5. TUJUAN PENELITIAN (purpose):
+   - Rumuskan 2 sampai 3 butir tujuan penelitian deklaratif yang terukur dan operasional.
+   - Gunakan format penomoran:
+     1. Menganalisis / Mengidentifikasi...
+     2. Merancang / Mengembangkan...
+     3. Menguji / Mengevaluasi...
+6. BATASAN MASALAH (scope):
+   - Rumuskan 1-2 batasan konkret (misal batasan objek/populasi subjek riset, batasan fitur/variabel, batasan instrumen atau tools).
 
-Format output WAJIB JSON murni tanpa markdown wrapper:
+Format output WAJIB JSON murni tanpa markdown:
 {
-  "background": "Teks latar belakang 2-3 kalimat akademik...",
-  "purpose": "1. Menganalisis...\\n2. Menguji...",
+  "background": "Latar belakang 2-3 kalimat tajam tanpa sitasi...",
+  "purpose": "1. Menganalisis...\\n2. Merancang...\\n3. Menguji...",
   "scope": "Penelitian dibatasi pada..."
 }`;
 
   const userPrompt = `Data Proposal Mahasiswa:
 - Judul Skripsi: "${title}"
 - Program Studi / Bidang: "${field}"
-- Metodologi:
+- Metodologi Riset:
 ${approachDetails}
 
-Draf Mentah dari Mahasiswa:
-- Latar Belakang Mentah: "${currentBg || "(Kosong / Perlu dibuatkan)"}"
-- Tujuan Mentah: "${currentPurpose || "(Kosong / Perlu dibuatkan)"}"
-- Batasan Masalah Mentah: "${currentScope || "(Kosong / Perlu dibuatkan)"}"
+Draf Mentah Awal dari Mahasiswa:
+- Latar Belakang: ${currentBg ? `"${currentBg}"` : "(Belum diisi, mohon buatkan brainstorming tajam dan spesifik)"}
+- Tujuan: ${currentPurp ? `"${currentPurp}"` : "(Belum diisi, mohon buatkan 2-3 tujuan operasional)"}
+- Batasan Masalah: ${currentScp ? `"${currentScp}"` : "(Belum diisi, mohon buatkan batasan ruang lingkup yang realistis)"}
 
-Sempurnakan ketiga butir di atas menjadi narasi akademik baku yang siap diajukan ke Dosen Pembimbing!`;
+Instruksi: Sempurnakan ketiga butir di atas menjadi narasi ilmiah berkualitas tinggi yang siap diajukan ke Dosen Pembimbing, TANPA SITASI!`;
 
   let refined = null;
 
-  // Coba via Groq Direct Client
+  // Coba via Groq Direct Client jika ada
   const groq = getDirectGroqClient();
   if (groq) {
     try {
@@ -397,7 +410,7 @@ Sempurnakan ketiga butir di atas menjadi narasi akademik baku yang siap diajukan
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        temperature: 0.35,
         max_tokens: 1500,
         response_format: { type: "json_object" },
       });
@@ -405,16 +418,16 @@ Sempurnakan ketiga butir di atas menjadi narasi akademik baku yang siap diajukan
     } catch (_) {}
   }
 
-  // Fallback via Router
+  // Fallback via AI Router Router
   if (!refined?.background) {
     try {
       const aiRes = await executeAiCompletion({
-        featureCode: "PROPOSAL_OUTLINE",
+        featureCode: "PROPOSAL_SECTION_SYNTHESIS",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        temperature: 0.35,
         maxTokens: 1500,
         jsonMode: true,
         userId,
@@ -425,18 +438,19 @@ Sempurnakan ketiga butir di atas menjadi narasi akademik baku yang siap diajukan
     } catch (_) {}
   }
 
-  // Fallback jika AI offline
+  // Fallback kontekstual berbasis judul jika AI offline
   if (!refined?.background) {
+    const cleanWords = title.replace(/[^\w\s]/gi, "").trim();
     refined = {
-      background: `Penelitian mengenai "${title}" memiliki urgensi penting untuk menjawab permasalahan pada bidang ${field}. Kajian ini berfokus pada analisis empiris terkait ${approachDetails.split("\n")[0]} guna memberikan kontribusi teoretis dan rekomendasi praktis.`,
-      purpose: `1. Menganalisis fenomena utama yang terjadi pada objek penelitian "${title}".\n2. Mengetahui dinamika serta implikasi variabel terkait bagi pengembangan bidang ${field}.`,
-      scope: `Penelitian dibatasi pada ruang lingkup permasalahan sesuai variabel/fokus yang dikaji dalam judul skripsi ini.`,
+      background: currentBg || `Kajian mengenai "${cleanWords}" menjadi fokus penting dalam bidang ${field} guna mengatasi kendala operasional dan optimalisasi implementasi di lapangan. Penelitian ini menitikberatkan pada pengujian terarah dan perumusan solusi konkret berbasis data empiris.`,
+      purpose: currentPurp || `1. Mengidentifikasi kebutuhan dan permasalahan utama yang berkaitan dengan ${cleanWords}.\n2. Menganalisis implementasi serta kinerja variabel utama pada objek penelitian.\n3. Memberikan rekomendasi strategis dan solusi terapan yang aplikatif bagi pengembangan bidang ${field}.`,
+      scope: currentScp || `Penelitian dibatasi pada ruang lingkup objek studi ${cleanWords}, pengamatan variabel utama, serta instrumen pengukuran yang relevan pada bidang ${field}.`,
     };
   }
 
   return {
     background: refined.background?.trim() || currentBg,
-    purpose: refined.purpose?.trim() || currentPurpose,
-    scope: refined.scope?.trim() || currentScope,
+    purpose: refined.purpose?.trim() || currentPurp,
+    scope: refined.scope?.trim() || currentScp,
   };
 }

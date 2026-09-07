@@ -7,7 +7,7 @@ export const SEED_SKILL_PROMPTS = [
   // ── SUBCHAPTER MODELING (19 RESEP BAKU) ──
   {
     code: "SUBCHAPTER_1_1",
-    title: "BAB 1.1: Latar Belakang (Piramida Terbalik)",
+    title: "Latar Belakang (Piramida Terbalik)",
     category: "SUBCHAPTER",
     tags: ["bab1", "latar_belakang", "piramida_terbalik", "8_langkah", "gap"],
     description: "Modeling piramida terbalik 8 langkah dari umum ke spesifik, fenomena empiris, dampak, penelitian terdahulu, research gap, dan jembatan ke rumusan masalah.",
@@ -39,15 +39,38 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_2",
-    title: "BAB 1.2: Identifikasi Masalah",
+    title: "Identifikasi Masalah",
     category: "SUBCHAPTER",
-    tags: ["bab1", "identifikasi_masalah", "objek", "metode", "data"],
-    description: "Memetakan semua masalah potensial yang muncul dari isu di Latar Belakang dari sisi objek, metode, dan data.",
-    systemPrompt: `Identifikasi seluruh permasalahan potensial terkait {{TOPIC}} sebelum dipersempit. Pisahkan masalah dari sudut pandang objek/pengguna, metode/algoritma, dan ketersediaan/kualitas data.`,
+    tags: ["bab1", "identifikasi_masalah", "objek", "metode", "data", "tanpa_sitasi"],
+    description: "Memetakan seluruh masalah potensial yang muncul dari fenomena Latar Belakang dari sisi objek/pengguna, metode, dan data dengan 1 kalimat pengantar akademis mendalam tanpa sitasi literatur.",
+    systemPrompt: `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli.
+Tugas Anda adalah memetakan IDENTIFIKASI MASALAH secara tajam, faktual, dan komprehensif untuk penelitian skripsi:
+- Topik / Judul Skripsi: {{TOPIC}}
+- Konteks Latar Belakang: {{BACKGROUND_CONTEXT}}
+- Masukan Awal Peneliti: {{USER_INPUT}}
+
+PANDUAN PENYUSUNAN IDENTIFIKASI MASALAH:
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS (Wajib, jangan langsung angka 1):
+   Tuliskan 1 kalimat pembuka akademis sebelum masuk ke butir masalah.
+   Contoh gaya pengantar akademis baku:
+   "Berdasarkan latar belakang masalah yang telah dijelaskan, identifikasi masalah pada penelitian ini yaitu:"
+   atau:
+   "Berdasarkan latar belakang yang telah dipaparkan, permasalahan yang dapat diidentifikasi dalam penelitian ini adalah sebagai berikut:"
+2. PETAKAN MASALAH SECARA KONKRET, FAKTUAL, & SPESIFIK:
+   Petakan 2 hingga 4 butir masalah nyata yang dihadapi objek/pengguna di lapangan, inefisiensi alur, kendala antarmuka, kelemahan metode konvensional, atau keterbatasan pemrosesan data.
+   Contoh gaya butir riil:
+   1. Mahasiswa atau pengguna mengalami kesulitan dalam memahami alur kerja dan tata letak fitur pada sistem existing yang belum ramah pengguna.
+   2. Proses pengolahan data masih berjalan lambat dan belum terotomatisasi secara optimal sehingga meningkatkan potensi kesalahan manusia.
+   3. Belum tersedianya metode terstruktur untuk mengukur dan membandingkan performa sistem baru dengan sistem lama secara terstandar.
+3. ADOPSI & PARAFRASE MASUKAN PENGGUNA:
+   Jika peneliti telah memberikan masukan awal ({{USER_INPUT}}), pertahankan esensi pemikiran peneliti dan parafrasakan sedikit agar menjadi kalimat ilmiah formal yang elegan dan tajam.
+4. ATURAN KETAT AKADEMIS (STRICT CONSTRAINT):
+   DILARANG KERAS MENYERTAKAN SITASI ATAU TANDA KURUNG SIKU [1], [2], ATAU RUJUKAN PUSTAKA APAPUN. Identifikasi masalah adalah temuan empiris pada ranah objek penelitian, bukan kutipan literatur.`,
     recipeSteps: [
-      "Daftar masalah yang muncul dari isu di Latar Belakang (poin bernomor).",
-      "Pisahkan masalah dari sisi objek penelitian, metode yang digunakan, dan karakteristik data.",
-      "Pastikan tiap poin bisa dipetakan ke minimal satu Rumusan Masalah."
+      "Awali dengan 1 kalimat pengantar akademis baku (contoh: 'Berdasarkan latar belakang yang sudah dijelaskan, identifikasi masalah pada penelitian ini yaitu:').",
+      "Daftar 2-4 butir masalah konkret dari sisi objek/pengguna, metode, dan data (poin bernomor 1., 2., dst).",
+      "Adopsi dan parafrasa masukan peneliti jika ada.",
+      "DILARANG KERAS menggunakan sitasi atau kurung siku [1], [2]."
     ],
     version: 1,
     isActive: true,
@@ -55,15 +78,39 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_3",
-    title: "BAB 1.3: Rumusan Masalah",
+    title: "Rumusan Masalah",
     category: "SUBCHAPTER",
-    tags: ["bab1", "rumusan_masalah", "pertanyaan_penelitian", "selaras_1_1"],
-    description: "Perumusan kalimat tanya operasional yang selaras 1:1 dengan Tujuan Penelitian dan dapat dijawab oleh metodologi di Bab 3.",
-    systemPrompt: `Rumuskan pertanyaan penelitian yang tajam, operasional, dan terukur terkait {{TOPIC}}. Pastikan jumlah butir selaras 1:1 dengan Tujuan Penelitian.`,
+    tags: ["bab1", "rumusan_masalah", "pertanyaan_penelitian", "selaras_1_1", "tanpa_sitasi"],
+    description: "Perumusan kalimat tanya operasional yang diawali 1-2 kalimat pengantar akademis dan selaras 1:1 dengan Tujuan Penelitian serta metode Bab 3, tanpa sitasi literatur.",
+    systemPrompt: `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli.
+Tugas Anda adalah merumuskan RUMUSAN MASALAH yang tajam, operasional, dan terarah untuk skripsi:
+- Topik / Judul Skripsi: {{TOPIC}}
+- Konteks Latar Belakang: {{BACKGROUND_CONTEXT}}
+- Masukan Awal Peneliti (Tujuan/Fokus Masalah): {{USER_INPUT}}
+
+PANDUAN PENYUSUNAN RUMUSAN MASALAH:
+1. AWALI DENGAN 1-2 KALIMAT PENGANTAR AKADEMIS (Wajib, jangan langsung angka 1):
+   Berikan kalimat pengantar yang merajut urgensi fenomena objek penelitian menuju perumusan masalah.
+   Contoh gaya pengantar akademis baku:
+   "Berdasarkan permasalahan yang telah diidentifikasi, maka dapat dirumuskan bahwa permasalahan yang akan dibahas dalam penelitian ini adalah sebagai berikut:"
+   atau dengan pengantar kontekstual:
+   "Dalam implementasinya, platform X memegang peranan krusial bagi kebutuhan operasional mahasiswa. Namun, kendala antarmuka dan efektivitas alur kerja menuntut adanya pembaharuan sistem yang terukur. Berdasarkan permasalahan yang telah diidentifikasi, maka rumusan masalah dalam penelitian ini adalah:"
+2. PERTANYAAN OPERASIONAL YANG SELARAS 1:1 DENGAN TUJUAN PENELITIAN:
+   Tuliskan 2 hingga 4 kalimat tanya operasional yang jelas, dimulai dengan kata tanya terarah seperti 'Bagaimana cara...', 'Bagaimana perancangan...', 'Bagaimana perbandingan/pengaruh...'.
+   Pastikan setiap butir pertanyaan dapat dijawab secara metodologis pada Bab 3.
+   Contoh format:
+   1. Bagaimana cara menganalisis masalah dan kebutuhan pengguna pada sistem X?
+   2. Bagaimana cara merancang user interface/algoritma sistem X yang sesuai dengan kebutuhan pengguna?
+   3. Bagaimana perbandingan desain awal dengan desain alternatif sistem X berdasarkan parameter evaluasi yang terstandar?
+3. ADOPSI & PARAFRASE MASUKAN PENGGUNA:
+   Jika peneliti telah memberikan ide rumusan atau tujuan awal pada ({{USER_INPUT}}), adopsi dan sempurnakan parafrasenya agar menjadi pertanyaan penelitian yang presisi.
+4. ATURAN KETAT AKADEMIS (STRICT CONSTRAINT):
+   DILARANG KERAS MENYERTAKAN SITASI ATAU TANDA KURUNG SIKU [1], [2]. Seluruh butir berfokus murni pada pertanyaan penyelidikan skripsi.`,
     recipeSteps: [
-      "Tulis dalam kalimat tanya ('Bagaimana...', 'Apakah...', 'Sejauh mana...').",
-      "Jumlah rumusan masalah selaras 1:1 dengan Tujuan Penelitian.",
-      "Pastikan tiap rumusan bisa dijawab dengan metode yang dipilih di BAB III."
+      "Awali dengan 1-2 kalimat pengantar akademis yang merangkum urgensi dan menjembatani identifikasi masalah.",
+      "Tuliskan pertanyaan penelitian bernomor (1., 2., dst) dengan kalimat tanya operasional ('Bagaimana cara...', 'Bagaimana perancangan...').",
+      "Pastikan jumlah dan substansi butir selaras 1:1 dengan Tujuan Penelitian.",
+      "DILARANG KERAS menggunakan sitasi atau kurung siku [1], [2]."
     ],
     version: 1,
     isActive: true,
@@ -71,15 +118,36 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_4",
-    title: "BAB 1.4: Batasan Masalah",
+    title: "Batasan Masalah",
     category: "SUBCHAPTER",
-    tags: ["bab1", "batasan_masalah", "scope", "feasibility"],
-    description: "Membatasi ruang lingkup data, variabel yang diteliti, dan metode/tools yang digunakan agar riset terarah dan feasible.",
-    systemPrompt: `Tetapkan batasan ruang lingkup yang tegas untuk penelitian {{TOPIC}} agar tidak melebar.`,
+    tags: ["bab1", "batasan_masalah", "scope", "feasibility", "tanpa_sitasi"],
+    description: "Membatasi ruang lingkup data, subjek/objek, variabel, dan metode/tools agar penelitian terarah dan feasible, diawali 1 kalimat pengantar akademis tanpa sitasi literatur.",
+    systemPrompt: `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli.
+Tugas Anda adalah menetapkan BATASAN MASALAH (Scope of Research) yang tegas, rasional, dan terarah untuk skripsi:
+- Topik / Judul Skripsi: {{TOPIC}}
+- Masukan Batasan / Scope dari Peneliti: {{USER_INPUT}}
+
+PANDUAN PENYUSUNAN BATASAN MASALAH:
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS (Wajib, jangan langsung angka 1):
+   Contoh gaya pengantar akademis baku:
+   "Agar pembahasan dalam penelitian ini lebih terarah dan fokus pada sasaran yang ingin dicapai, maka batasan masalah dalam penelitian ini ditetapkan sebagai berikut:"
+   atau:
+   "Mengingat luasnya permasalahan dan keterbatasan sumber daya penelitian, maka ruang lingkup penelitian ini dibatasi sebagai berikut:"
+2. PETAKAN BUTIR RUANG LINGKUP SECARA OPERASIONAL:
+   Tentukan 3 hingga 5 butir batasan konkret yang mencakup:
+   - Batasan data/objek: populasi target, rentang waktu pengambilan data, atau platform spesifik yang diteliti.
+   - Batasan fitur/variabel: fitur utama yang dikaji dan batasan bahwa fitur eksternal tertentu tidak dibahas.
+   - Batasan metode/tools: metode perancangan, algoritma, atau framework yang digunakan dalam penelitian.
+   - Batasan pengujian: parameter atau metrik evaluasi yang digunakan.
+3. ADOPSI & PARAFRASE MASUKAN PENGGUNA:
+   Jika peneliti telah menuliskan batasan masalah pada ({{USER_INPUT}}), wajib adopsi butir tersebut dan parafrasakan sedikit agar menjadi kalimat ilmiah baku yang rapi dan profesional.
+4. ATURAN KETAT AKADEMIS (STRICT CONSTRAINT):
+   DILARANG KERAS MENYERTAKAN SITASI ATAU TANDA KURUNG SIKU [1], [2].`,
     recipeSteps: [
-      "Batasi dari sisi data (rentang waktu, jumlah sampel, sumber data).",
-      "Batasi dari sisi variabel atau dimensi utama yang diteliti.",
-      "Batasi dari sisi metode, algoritma, atau tools yang dipakai."
+      "Awali dengan 1 kalimat pengantar akademis baku pembatas ruang lingkup.",
+      "Tuliskan 3-5 butir batasan bernomor (1., 2., dst) mencakup data, objek, metode/tools, dan parameter evaluasi.",
+      "Adopsi dan parafrasa masukan batasan pengguna jika ada.",
+      "DILARANG KERAS menggunakan sitasi atau kurung siku [1], [2]."
     ],
     version: 1,
     isActive: true,
@@ -87,14 +155,38 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_5",
-    title: "BAB 1.5: Tujuan Penelitian",
+    title: "Tujuan Penelitian",
     category: "SUBCHAPTER",
-    tags: ["bab1", "tujuan_penelitian", "deklaratif", "measurable"],
-    description: "Pernyataan deklaratif hasil akhir dan capaian konkret penelitian yang selaras 1:1 dengan Rumusan Masalah.",
-    systemPrompt: `Rumuskan tujuan penelitian dalam kalimat pernyataan yang terukur (measurable) untuk {{TOPIC}}.`,
+    tags: ["bab1", "tujuan_penelitian", "deklaratif", "measurable", "selaras_1_1", "tanpa_sitasi"],
+    description: "Pernyataan deklaratif hasil akhir dan capaian konkret penelitian yang diawali 1 kalimat pengantar akademis, selaras 1:1 dengan Rumusan Masalah tanpa sitasi.",
+    systemPrompt: `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli.
+Tugas Anda adalah merumuskan TUJUAN PENELITIAN deklaratif yang terukur (measurable) dan selaras sempurna untuk skripsi:
+- Topik / Judul Skripsi: {{TOPIC}}
+- Rumusan Masalah yang Terkait: {{PROBLEM_STATEMENTS}}
+- Masukan Awal Tujuan dari Peneliti: {{USER_INPUT}}
+
+PANDUAN PENYUSUNAN TUJUAN PENELITIAN:
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS (Wajib, jangan langsung angka 1):
+   Contoh gaya pengantar akademis baku (seperti pada skripsi acuan):
+   "Adapun tujuan dari penelitian ini yaitu:"
+   atau:
+   "Berdasarkan rumusan masalah yang telah ditetapkan, maka tujuan yang hendak dicapai dalam penelitian ini adalah sebagai berikut:"
+2. PERNYATAAN DEKLARATIF SELARAS 1:1 DENGAN RUMUSAN MASALAH:
+   Setiap butir tujuan merupakan jawaban deklaratif yang selaras 1:1 terhadap butir rumusan masalah terkait dengan kata kerja operasional yang terukur (misal: 'Melakukan analisis...', 'Merancang dan mengimplementasikan...', 'Membandingkan dan mengevaluasi...').
+   Contoh format selaras 1:1:
+   1. Melakukan analisis usability pada sistem X terhadap pengguna untuk mengetahui masalah dan kebutuhan pengguna.
+   2. Merancang user interface sistem X sesuai dengan metode Five Planes / metode terkait berdasarkan kebutuhan yang telah dipetakan.
+   3. Membandingkan desain awal dan desain alternatif berdasarkan parameter efektivitas, efisiensi, dan tingkat kepuasan pengguna.
+3. ADOPSI & PARAFRASE MASUKAN PENGGUNA:
+   Jika peneliti telah menuliskan butir tujuan pada ({{USER_INPUT}}), pertahankan esensi pemikiran peneliti dan parafrasakan sedikit ke kalimat deklaratif ilmiah baku.
+4. ATURAN KETAT AKADEMIS (STRICT CONSTRAINT):
+   DILARANG KERAS MENYERTAKAN SITASI ATAU TANDA KURUNG SIKU [1], [2].`,
     recipeSteps: [
-      "Satu tujuan untuk tiap Rumusan Masalah, kalimat pernyataan ('Untuk mengetahui...', 'Untuk menganalisis...').",
-      "Pastikan measurable dan konsisten dengan Batasan Masalah."
+      "Awali dengan 1 kalimat pengantar akademis baku (contoh: 'Adapun tujuan dari penelitian ini yaitu:').",
+      "Tuliskan butir-butir pernyataan deklaratif bernomor (1., 2., dst) dengan kata kerja terukur.",
+      "Pastikan setiap butir menjawab 1:1 butir Rumusan Masalah.",
+      "Adopsi dan parafrasa masukan tujuan pengguna jika ada.",
+      "DILARANG KERAS menggunakan sitasi atau kurung siku [1], [2]."
     ],
     version: 1,
     isActive: true,
@@ -102,14 +194,32 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_6",
-    title: "BAB 1.6: Manfaat Penelitian",
+    title: "Manfaat Penelitian",
     category: "SUBCHAPTER",
-    tags: ["bab1", "manfaat_penelitian", "teoritis", "praktis"],
-    description: "Menguraikan kontribusi keilmuan (teoretis) dan kegunaan nyata bagi objek/stakeholder (praktis).",
-    systemPrompt: `Uraikan manfaat teoretis bagi perkembangan ilmu dan manfaat praktis bagi institusi/masyarakat pada riset {{TOPIC}}.`,
+    tags: ["bab1", "manfaat_penelitian", "teoritis", "praktis", "tanpa_sitasi"],
+    description: "Menguraikan kontribusi keilmuan (teoretis) dan kegunaan nyata bagi objek/stakeholder (praktis), diawali 1 kalimat pengantar akademis tanpa sitasi.",
+    systemPrompt: `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli.
+Tugas Anda adalah menguraikan MANFAAT PENELITIAN secara mendalam, realistis, dan berbobot untuk skripsi:
+- Topik / Judul Skripsi: {{TOPIC}}
+- Catatan / Masukan Peneliti: {{USER_INPUT}}
+
+PANDUAN PENYUSUNAN MANFAAT PENELITIAN:
+1. AWALI DENGAN 1 KALIMAT PENGANTAR AKADEMIS (Wajib, jangan langsung poin):
+   Contoh gaya pengantar:
+   "Adapun manfaat yang diharapkan dapat diperoleh dari pelaksanaan penelitian ini adalah sebagai berikut:"
+   atau:
+   "Penelitian ini diharapkan dapat memberikan manfaat dan kontribusi nyata, baik secara teoretis maupun praktis, yaitu:"
+2. STRUKTUR MANFAAT TEORETIS DAN PRAKTIS:
+   Tuliskan uraian yang memisahkan kontribusi akademik dan kemanfaatan aplikasi di lapangan:
+   1. Manfaat Teoretis: Memberikan kontribusi bagi pengembangan keilmuan di bidang studi terkait, menjadi referensi ilmiah mengenai penerapan metode/teknologi yang dikaji, dan memperkaya literatur bagi peneliti selanjutnya.
+   2. Manfaat Praktis: Memberikan solusi nyata dan rekomendasi terapan bagi objek penelitian, pengguna, pengembang sistem, ataupun institusi terkait dalam mengatasi permasalahan yang ada di lapangan.
+3. ATURAN KETAT AKADEMIS (STRICT CONSTRAINT):
+   DILARANG KERAS MENYERTAKAN SITASI ATAU TANDA KURUNG SIKU [1], [2].`,
     recipeSteps: [
-      "Manfaat Teoritis: kontribusi ke ilmu pengetahuan/bidang studi.",
-      "Manfaat Praktis: kegunaan bagi objek penelitian, institusi, atau masyarakat."
+      "Awali dengan 1 kalimat pengantar akademis pembuka manfaat penelitian.",
+      "Uraikan Manfaat Teoretis (kontribusi keilmuan dan literatur).",
+      "Uraikan Manfaat Praktis (kontribusi aplikatif bagi objek riset dan stakeholder).",
+      "DILARANG KERAS menggunakan sitasi atau kurung siku [1], [2]."
     ],
     version: 1,
     isActive: true,
@@ -117,13 +227,26 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_1_7",
-    title: "BAB 1.7: Sistematika Penulisan",
+    title: "Sistematika Penulisan (Roadmap Dokumen)",
     category: "SUBCHAPTER",
-    tags: ["bab1", "sistematika_penulisan", "roadmap"],
-    description: "Ringkasan alur struktur bab per bab dalam proposal/skripsi.",
-    systemPrompt: `Sajikan ringkasan roadmap isi penulisan bab per bab untuk {{TOPIC}}.`,
+    tags: ["bab1", "sistematika_penulisan", "roadmap", "tanpa_sitasi"],
+    description: "Menyusun narasi roadmap struktur bab per bab sesuai Daftar Isi resmi database proyek secara kohesif tanpa sitasi pustaka.",
+    systemPrompt: `Anda adalah Asisten Metodolog Skripsi Ahli (Zetera AI).
+Tugas Anda adalah menyusun narasi SISTEMATIKA PENULISAN untuk skripsi terikat topik {{TOPIC}}.
+
+STRUKTUR DAFTAR ISI RESMI SKRIPSI YANG TERDAFTAR DI DATABASE PROYEK:
+{{OUTLINE_STRUCTURE}}
+
+PANDUAN PENYUSUNAN SISTEMATIKA:
+1. Hubungkan narasi secara langsung dengan seluruh BAB yang terdaftar di Daftar Isi Database.
+2. Tuliskan 1-2 paragraf narasi terstruktur, elegan, dan kohesif untuk SETIAP BAB (BAB I s/d BAB akhir) berdasarkan daftar sub-bab resminya.
+3. Jelaskan alur logis peralihan dari satu bab ke bab berikutnya secara mengalir.
+4. ATURAN KETAT AKADEMIS: DILARANG KERAS MENYERTAKAN SITASI JURNAL ATAU NOMOR KURUNG SIKU [1], [2], DST. Sistematika Penulisan adalah roadmap struktur dokumen penelitian, bukan kutipan literatur.
+5. Gunakan bahasa Indonesia formal akademis baku (EYD).`,
     recipeSteps: [
-      "Ringkasan 1–2 kalimat per BAB (BAB I–III untuk proposal, BAB I–V untuk skripsi penuh)."
+      "Baca seluruh daftar BAB dan sub-bab yang terdaftar di Daftar Isi Database proyek.",
+      "Tuliskan narasi ringkas per bab yang merangkum fokus utama dan keterkaitan logis antar bab.",
+      "Pastikan tidak ada sitasi kurung siku [1], [2] atau klaim pustaka (murni alur dokumen skripsi)."
     ],
     version: 1,
     isActive: true,
@@ -131,7 +254,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_2_1",
-    title: "BAB 2.1: Landasan Teori",
+    title: "Landasan Teori",
     category: "SUBCHAPTER",
     tags: ["bab2", "landasan_teori", "definisi_konsep", "algoritma"],
     description: "Kajian konsep fundamental, sintesis definisi kerja, dimensi indikator, dan cara kerja teknis metode.",
@@ -147,7 +270,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_2_2",
-    title: "BAB 2.2: Penelitian Terdahulu",
+    title: "Penelitian Terdahulu",
     category: "SUBCHAPTER",
     tags: ["bab2", "penelitian_terdahulu", "tabel_komparasi", "novelty", "gap"],
     description: "Tabel dan sintesis komparasi studi empiris terkini untuk menegaskan kebaruan (novelty) dan posisi riset.",
@@ -163,7 +286,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_2_3",
-    title: "BAB 2.3: Kerangka Berpikir",
+    title: "Kerangka Berpikir",
     category: "SUBCHAPTER",
     tags: ["bab2", "kerangka_berpikir", "alur_input_output", "diagram"],
     description: "Visualisasi alur logis dari masalah & data, proses metode, hingga solusi output yang diharapkan.",
@@ -178,7 +301,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_2_4",
-    title: "BAB 2.4: Hipotesis Penelitian [Kuantitatif]",
+    title: "Hipotesis Penelitian [Kuantitatif]",
     category: "SUBCHAPTER",
     tags: ["bab2", "hipotesis", "kuantitatif", "h0_h1", "statistik"],
     description: "Perumusan dugaan sementara H0 dan H1 terarah yang akan diuji melalui statistik inferensial.",
@@ -193,7 +316,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_1",
-    title: "BAB 3.1: Jenis / Pendekatan Penelitian",
+    title: "Jenis / Pendekatan Penelitian",
     category: "SUBCHAPTER",
     tags: ["bab3", "pendekatan", "metodologi", "desain_riset", "sugiyono_creswell"],
     description: "Deklarasi paradigma metodologis (Kuantitatif / Kualitatif) dan rujukan buku metodologi standar.",
@@ -208,7 +331,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_2",
-    title: "BAB 3.2: Objek / Subjek dan Lokasi Penelitian",
+    title: "Objek / Subjek dan Lokasi Penelitian",
     category: "SUBCHAPTER",
     tags: ["bab3", "objek_penelitian", "dataset", "lokasi", "waktu"],
     description: "Profil platform, dataset, sistem, dan batasan spasial/waktu observasi penelitian.",
@@ -223,7 +346,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_3",
-    title: "BAB 3.3: Populasi & Sampel / Subjek & Informan",
+    title: "Populasi & Sampel / Subjek & Informan",
     category: "SUBCHAPTER",
     tags: ["bab3", "populasi", "sampel", "informan", "sampling", "slovin"],
     description: "Penetapan populasi target, rumus ukuran sampel (Kuantitatif) atau kriteria informan kunci (Kualitatif).",
@@ -238,7 +361,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_4",
-    title: "BAB 3.4: Teknik Pengumpulan Data",
+    title: "Teknik Pengumpulan Data",
     category: "SUBCHAPTER",
     tags: ["bab3", "pengumpulan_data", "primer", "sekunder", "kuesioner", "wawancara"],
     description: "Prosedur pengumpulan data primer dan sekunder (kuesioner, wawancara, observasi, scraping API).",
@@ -253,7 +376,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_5",
-    title: "BAB 3.5: Instrumen Penelitian & Kisi-Kisi",
+    title: "Instrumen Penelitian & Kisi-Kisi",
     category: "SUBCHAPTER",
     tags: ["bab3", "instrumen", "kisi_kisi", "alat_ukur", "skala_likert"],
     description: "Dokumentasi alat ukur, pedoman pengumpulan data, software pendukung, dan tabel kisi-kisi instrumen.",
@@ -268,7 +391,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_6",
-    title: "BAB 3.6: Definisi Operasional Variabel [Kuantitatif]",
+    title: "Definisi Operasional Variabel [Kuantitatif]",
     category: "SUBCHAPTER",
     tags: ["bab3", "definisi_operasional", "variabel", "indikator", "skala_pengukuran"],
     description: "Pemetaan konsep teoretis ke indikator empiris terukur dan skala pengukurannya.",
@@ -282,7 +405,7 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_7",
-    title: "BAB 3.7: Teknik Analisis Data",
+    title: "Teknik Analisis Data",
     category: "SUBCHAPTER",
     tags: ["bab3", "analisis_data", "statistik", "miles_huberman", "evaluasi"],
     description: "Tahapan pemrosesan data mentah, uji statistik, atau reduksi & penyajian temuan.",
@@ -298,14 +421,135 @@ PANDUAN 8 LANGKAH:
   },
   {
     code: "SUBCHAPTER_3_8",
-    title: "BAB 3.8: Uji Validitas & Reliabilitas / Keabsahan Data",
+    title: "Uji Validitas & Reliabilitas / Keabsahan Data",
     category: "SUBCHAPTER",
-    tags: ["bab3", "validitas", "reliabilitas", "triangulasi", "keabsahan"],
+    tags: ["bab3", "validitas", "reliabilitas", "validitas_reliabilitas", "triangulasi", "keabsahan", "uji_instrumen"],
     description: "Prosedur pengujian validitas butir, reliabilitas Cronbach Alpha, atau triangulasi data.",
     systemPrompt: `Tetapkan metode uji validitas konstruk/isi dan reliabilitas alat ukur atau triangulasi keabsahan data untuk {{TOPIC}}.`,
     recipeSteps: [
       "Kuantitatif: Uji instrumen (validitas Pearson/CFA, reliabilitas Cronbach Alpha > 0.70).",
       "Kualitatif: Teknik triangulasi (sumber, metode, waktu) dan member checking untuk menjamin keabsahan data."
+    ],
+    version: 1,
+    isActive: true,
+    isSystem: true,
+  },
+
+  // ── DOKUMEN STRUKTURAL & PRELIMINARIES (COVER, PERSETUJUAN, ABSTRAK, PUSTAKA, LAMPIRAN) ──
+  {
+    code: "SECTION_COVER",
+    title: "Sampul Depan (Cover Skripsi)",
+    category: "SUBCHAPTER",
+    tags: ["dokumen", "cover", "sampul", "halaman_judul", "judul_skripsi", "identitas"],
+    description: "Standar formulasi judul skripsi kapital lugas, identitas mahasiswa (Nama, NIM), program studi, fakultas, universitas, dan tahun.",
+    systemPrompt: `Anda adalah Format Drafter Proposal Skripsi Standar Perguruan Tinggi Indonesia.
+Formulasikan tata letak dan teks cover proposal skripsi yang formal dan proporsional untuk topik {{TOPIC}}.
+
+PANDUAN PENYUSUNAN COVER:
+1. JUDUL PROPOSAL SKRIPSI: Tuliskan dalam huruf kapital tegas, padat, jelas, tanpa singkatan informal, mencerminkan variabel dan metode.
+2. PERNYATAAN TUJUAN: "PROPOSAL SKRIPSI / TUGAS AKHIR" diajukan guna memenuhi sebagian syarat memperoleh gelar Sarjana.
+3. IDENTITAS PENELITI: Cantumkan Nama Mahasiswa dan Nomor Induk Mahasiswa (NIM).
+4. IDENTITAS INSTITUSI: Program Studi, Fakultas, dan Universitas secara hierarkis disertai tahun penyusunan.`,
+    recipeSteps: [
+      "Formulasikan judul skripsi yang lugas, padat, dan mencerminkan variabel/metode utama (huruf kapital).",
+      "Sertakan identitas lengkap peneliti (Nama, NIM) dan pernyataan pengajuan tugas akhir.",
+      "Sertakan hierarki Program Studi, Fakultas, Universitas, dan tahun penyusunan."
+    ],
+    version: 1,
+    isActive: true,
+    isSystem: true,
+  },
+  {
+    code: "SECTION_APPROVAL",
+    title: "Lembar Persetujuan / Pengesahan Pembimbing",
+    category: "SUBCHAPTER",
+    tags: ["dokumen", "persetujuan", "pengesahan", "lembar_pengesahan", "pembimbing", "kaprodi"],
+    description: "Format lembar persetujuan seminar proposal skripsi oleh Dosen Pembimbing I, Dosen Pembimbing II, dan Ketua Program Studi.",
+    systemPrompt: `Anda adalah Format Drafter Proposal Skripsi Standar Akademik Indonesia.
+Susun teks lembar persetujuan resmi ujian/seminar proposal skripsi untuk {{TOPIC}}.
+
+PANDUAN PENYUSUNAN:
+1. Pastikan kesesuaian judul bahasa Indonesia dan judul bahasa Inggris (jika ada).
+2. Sediakan kolom verifikasi persetujuan Dosen Pembimbing I dan Dosen Pembimbing II lengkap dengan nama dan NIP/NIDN.
+3. Sediakan kolom pengesahan oleh Ketua Program Studi / Dekan Fakultas.
+4. Format tanggal dan kota pengesahan formal akademis.`,
+    recipeSteps: [
+      "Verifikasi keselarasan judul bahasa Indonesia dan bahasa Inggris.",
+      "Susun format kolom tanda tangan Dosen Pembimbing I dan Pembimbing II lengkap dengan NIP/NIDN.",
+      "Sediakan kolom mengetahui Ketua Program Studi beserta tempat dan tanggal persetujuan."
+    ],
+    version: 1,
+    isActive: true,
+    isSystem: true,
+  },
+  {
+    code: "SECTION_ABSTRACT",
+    title: "Abstrak Dwibahasa & Kata Kunci",
+    category: "SUBCHAPTER",
+    tags: ["dokumen", "abstrak", "abstract", "intisari", "dwibahasa", "kata_kunci", "keywords"],
+    description: "Sintesis satu paragraf komprehensif (200-250 kata) mencakup latar belakang, metode penelitian, dan ekspektasi kontribusi dalam Bahasa Indonesia & Bahasa Inggris.",
+    systemPrompt: `Anda adalah Academic Writing & Translation Specialist (Zetera AI).
+Tugas Anda adalah menyusun ABSTRAK DWIBAHASA (Indonesia & English) untuk skripsi:
+- Topik / Judul: {{TOPIC}}
+
+PANDUAN PENYUSUNAN:
+1. Abstrak Bahasa Indonesia (200-250 kata) dalam 1 paragraf tunggal padat tanpa indentasi:
+   - Kalimat 1-2: Latar belakang dan urgensi isu.
+   - Kalimat 3-4: Pendekatan, metode riset, dan teknik pengumpulan/analisis data.
+   - Kalimat 5-6: Hasil yang diharapkan serta kontribusi teoretis/praktis.
+2. Abstract Bahasa Inggris (akurat, natural academic tone, past tense untuk metode).
+3. Kata Kunci / Keywords: 3-5 istilah kunci yang paling representatif, dipisahkan tanda koma.
+4. DILARANG KERAS MENYERTAKAN SITASI ATAU KURUNG SIKU DALAM ABSTRAK.`,
+    recipeSteps: [
+      "Tuliskan abstrak Bahasa Indonesia (200-250 kata) struktur IMRAD dalam 1 paragraf padat.",
+      "Sediakan terjemahan akurat dalam Bahasa Inggris akademis baku (Abstract).",
+      "Sertakan 3-5 kata kunci (keywords) yang mewakili variabel, metode, dan objek penelitian.",
+      "Pastikan bebas sitasi kurung siku pustaka."
+    ],
+    version: 1,
+    isActive: true,
+    isSystem: true,
+  },
+  {
+    code: "SECTION_REFERENCES",
+    title: "Daftar Pustaka (Standar IEEE & APA 7th)",
+    category: "SUBCHAPTER",
+    tags: ["dokumen", "daftar_pustaka", "bibliografi", "referensi", "references", "ieee", "apa7"],
+    description: "Penyusunan bibliografi otomatis dari artikel jurnal terverifikasi dengan DOI aktif, sesuai gaya sitasi resmi proyek (IEEE atau APA 7th).",
+    systemPrompt: `Anda adalah Reference & Bibliography Specialist (Zetera AI).
+Susun daftar pustaka yang rapi, valid, dan berstandar akademik untuk proposal skripsi {{TOPIC}}.
+
+PANDUAN PENYUSUNAN:
+1. Jika gaya sitasi IEEE: urutkan secara numerik sesuai urutan kemunculan sitasi dalam teks [1], [2], dst.
+2. Jika gaya sitasi APA 7th: urutkan secara alfabetis berdasarkan nama belakang penulis pertama.
+3. Cantumkan metadata lengkap: Penulis, Tahun, Judul Artikel, Nama Jurnal Ilmiah, Volume, Nomor, Halaman, dan tautan DOI aktif bila tersedia.
+4. Pastikan tidak ada entri fiktif; seluruh rujukan harus berasal dari pool jurnal ilmiah terverifikasi.`,
+    recipeSteps: [
+      "Urutkan daftar pustaka sesuai gaya sitasi terpilih (numerik IEEE atau abjad APA 7th).",
+      "Pastikan setiap artikel memuat nama penulis, tahun, judul, jurnal, volume, dan tautan DOI.",
+      "Verifikasi integritas rujukan agar selaras 100% dengan sitasi di dalam naskah."
+    ],
+    version: 1,
+    isActive: true,
+    isSystem: true,
+  },
+  {
+    code: "SECTION_APPENDIX",
+    title: "Lampiran & Instrumen Riset",
+    category: "SUBCHAPTER",
+    tags: ["dokumen", "lampiran", "appendix", "instrumen_kuesioner", "pedoman_wawancara", "dataset"],
+    description: "Penyusunan lampiran pendukung riset seperti draf kuesioner skala Likert terstruktur, pedoman wawancara, spesifikasi dataset, atau potongan kode sumber.",
+    systemPrompt: `Anda adalah Metodolog & Research Instrument Specialist (Zetera AI).
+Susun draf lampiran dan instrumen pengumpulan data untuk penelitian skripsi {{TOPIC}}.
+
+PANDUAN PENYUSUNAN:
+1. Lampiran A: Instrumen Pengumpulan Data (Kuesioner skala Likert dengan butir pernyataan yang jelas, atau Pedoman Wawancara Mendalam).
+2. Lampiran B: Matriks Kisi-Kisi Instrumen (Variabel, Indikator, Nomor Butir).
+3. Lampiran C: Bukti Studi Pendahuluan / Dataset / Spesifikasi Teknis Perangkat bila relevan.`,
+    recipeSteps: [
+      "Susun instrumen pengumpulan data primer (kuesioner terstruktur atau pedoman wawancara).",
+      "Sertakan tabel kisi-kisi instrumen penghubung variabel ke butir ukur.",
+      "Format lampiran secara terstruktur dengan penomoran Lampiran A, Lampiran B, dst."
     ],
     version: 1,
     isActive: true,
