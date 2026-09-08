@@ -151,6 +151,9 @@ export async function executeAiCompletion({
         maxTokens,
         jsonMode,
       });
+      if (!response?.content || !response.content.trim()) {
+        throw new Error(`Model "${targetModel.modelName}" mengembalikan respon kosong.`);
+      }
       usageInfo = response.usage || usageInfo;
     } catch (err) {
       console.warn(`[AI-ROUTER] Primary model "${targetModel.modelName}" gagal: ${err.message}. Mencoba fallback...`);
@@ -164,6 +167,9 @@ export async function executeAiCompletion({
           maxTokens,
           jsonMode,
         });
+        if (!response?.content || !response.content.trim()) {
+          throw new Error(`Fallback model "${fallbackModel.modelName}" mengembalikan respon kosong.`);
+        }
         usageInfo = response.usage || usageInfo;
       } else {
         throw err;

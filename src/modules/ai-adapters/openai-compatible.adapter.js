@@ -32,6 +32,7 @@ export class OpenAiCompatibleAdapter extends BaseAiProviderAdapter {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(20000),
     });
 
     if (!resp.ok) {
@@ -40,7 +41,15 @@ export class OpenAiCompatibleAdapter extends BaseAiProviderAdapter {
     }
 
     const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content || "";
+    const content =
+      data.choices?.[0]?.message?.content ||
+      data.choices?.[0]?.message?.reasoning_content ||
+      data.choices?.[0]?.text ||
+      "";
+
+    if (!content || !content.trim()) {
+      throw new Error(`[${model?.routerLabel || "AI-Provider"}] Model mengembalikan respon teks kosong.`);
+    }
     const promptTokens = data.usage?.prompt_tokens || Math.round(JSON.stringify(messages).length / 4);
     const completionTokens = data.usage?.completion_tokens || Math.round(content.length / 4);
 

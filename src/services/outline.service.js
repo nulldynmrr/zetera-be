@@ -199,19 +199,44 @@ export async function generateResearchBlueprint({ projectId, userId }) {
   const memoryContext = await buildMemoryContext(projectId).catch(() => "");
   const customOutline = project.customOutline;
 
-  // Baca active guides dari Database / Prompt Library (bisa diupdate Admin)
-  const dbGuides = await getAllSubchapterGuides();
-  const activeGuides = dbGuides || SUBCHAPTER_MODELING_GUIDES;
+  // 1. Ambil daftar Sub-bab & Rules hasil migrasi database (SubBab & Rule N:N)
+  const migratedSubBabs = await prisma.subBab.findMany({
+    include: {
+      outputSpec: true,
+      mappings: {
+        include: { rule: true },
+        orderBy: { order: "asc" },
+      },
+    },
+    orderBy: [{ bab: "asc" }, { order: "asc" }],
+  });
+
+  let subBabGuidance = "";
+  if (migratedSubBabs && migratedSubBabs.length > 0) {
+    subBabGuidance = migratedSubBabs
+      .map((s) => {
+        const rulesList = s.mappings.map((m) => m.rule?.name).filter(Boolean).join(", ") || "Standar Akademis Baku";
+        const specInfo = s.outputSpec
+          ? `Format: ${s.outputSpec.formatType || "PARAGRAPH"}, Sitasi: ${s.outputSpec.citationPolicy || "NONE"}`
+          : "Format: PARAGRAPH, Sitasi: NONE";
+        return `   - Sub-bab ${s.bab}.${s.order} (${s.title}): [Ekspektasi: ${specInfo}] | [Rules Terpasang: ${rulesList}]`;
+      })
+      .join("\n");
+  } else {
+    // Fallback baseline jika DB Sub-bab kosong
+    const dbGuides = await getAllSubchapterGuides();
+    const activeGuides = dbGuides || SUBCHAPTER_MODELING_GUIDES;
+    subBabGuidance = Object.entries(activeGuides)
+      .map(([code, g]) => `   - Sub-bab ${code} (${g.name}):\n` + (g.steps || []).map((s, idx) => `     ${idx + 1}. ${s}`).join("\n"))
+      .join("\n\n");
+  }
 
   const systemPrompt = `Anda adalah Research Blueprint Architect & Metodolog Skripsi Ahli (Zetera AI).
 Tugas Anda adalah merancang RESEARCH BLUEPRINT komprehensif & instruksi riset yang SANGAT KONKRET, DETAIL, MUDAH DIPAHAMI MAHASISWA, dan TERIKAT 100% KETAT PADA TOPIK RISET (STRICT TOPIC-BOUND).
 
-ATURAN WAJIB (STRICT CONSTRAINTS - DILARANG NGACO/GENERIK):
-1. MODELING BERBEDA UNTUK TIAP SUB-BAB (DILARANG DISAMAKAN):
-   Setiap sub-bab memiliki peran akademis yang unik. Gunakan resep pemodelan berikut:
-${Object.entries(activeGuides)
-  .map(([code, g]) => `   - Sub-bab ${code} (${g.name}):\n` + (g.steps || []).map((s, idx) => `     ${idx + 1}. ${s}`).join("\n"))
-  .join("\n\n")}
+ATURAN WAJIB & STRUKTUR SUB-BAB TERPADU:
+1. MODELING BERDASARKAN ATURAN SUB-BAB & RULES YANG TERPASANG DI SISTEM:
+${subBabGuidance}
 
 2. KETERIKATAN TOPIK MUTLAK:
    - Setiap kalimat instruksi WAJIB secara nyata menyebut nama variabel, konsep, objek, platform, atau metode dari judul: "${project.title}".
@@ -282,13 +307,15 @@ Format output WAJIB JSON murni:
       maxTokens: 5000,
       jsonMode: true,
       userId,
-    }).catch(() => null);
+    });
 
     if (aiResponse?.content) {
       const parsed = parseJsonFromText(aiResponse.content);
       if (parsed?.items?.length > 0) items = parsed.items;
     }
-  } catch (_) { }
+  } catch (err) {
+    console.warn("[Blueprint] AI Router completion note:", err.message);
+  }
 
   // Fallback ke Groq
   if (!items) {
@@ -372,8 +399,26 @@ export async function generateItemBlueprint({ projectId, userId, itemId }) {
   
   // Ambil resep modeling dari database (atau fallback ke default)
   const dbGuides = await getAllSubchapterGuides();
+  const activeGuides = dbGuides || SUBCHAPTER_MODELING_GUIDES;
   const resolved = resolveSubchapterTag(item.title, item.itemId || item.bab);
   const tagToUse = typeof item.tag === "string" ? item.tag : (resolved?.tag || null);
+
+  // Ambil data SubBab & Rules dari database hasil migrasi
+  const cleanTag = tagToUse ? tagToUse.replace("#", "").trim() : "";
+  const matchedSubBab = await prisma.subBab.findFirst({
+    where: {
+      OR: [
+        cleanTag ? { tag: cleanTag } : undefined,
+        { title: { contains: item.title } },
+      ].filter(Boolean),
+    },
+    include: {
+      outputSpec: true,
+      mappings: { include: { rule: true } },
+    },
+  }).catch(() => null);
+
+  const specCitation = matchedSubBab?.outputSpec?.citationPolicy || (item.itemId === "1.1" || item.bab === 2 ? "REQUIRED" : "NONE");
   const directGuide = activeGuides[item.itemId] || (tagToUse ? activeGuides[tagToUse] : null);
   const parentCode = item.itemId.split(".").slice(0, 2).join(".");
   const parentGuide = activeGuides[parentCode] || activeGuides["2.1"];
