@@ -36,9 +36,28 @@ export function sanitizeAcademicText(text) {
     .replace(/\uFB06/g, "st")
     // 4. Bersihkan non-printable control characters (kecuali \n, \r, \t)
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
-    // 5. Normalisasi spasi berlebih
+    // 5. ATURAN MUTLAK ANTI-SLOP 2026: DILARANG KERAS ADA DASH (— / –)
+    // Ubah dash antar-angka/tahun (misal 2020–2025) menjadi tanda hubung biasa (-)
+    .replace(/(\d+)\s*[—–]\s*(\d+)/g, "$1-$2")
+    // Ubah dash penjelas klausa di tengah kalimat menjadi tanda koma atau tanda kurung
+    .replace(/\s*[—–]\s*/g, ", ")
+    // 6. Bersihkan pembuka klise AI Indonesia
+    .replace(/^\s*(?:Di era modern ini|Seiring perkembangan zaman|Dalam konteks [^\n,]+ yang semakin [^\n,]+|Perlu diketahui bahwa|Penting untuk diingat bahwa|Tidak dapat dipungkiri bahwa)[,\s]*/gim, "")
+    // 7. Bersihkan penutup boilerplate AI
+    .replace(/\b(?:Sebagai kesimpulan|Dapat disimpulkan bahwa|Dengan demikian,? dapat disimpulkan|Secara keseluruhan|Pada akhirnya)[,\s]*/gim, "")
+    // 8. Pembersihan puffery & kata kerja klise AI
+    .replace(/\bsangat krusial\b/gi, "penting")
+    .replace(/\bsangat signifikan\b/gi, "signifikan")
+    .replace(/\bsangat fundamental\b/gi, "mendasar")
+    .replace(/\bmenyelami\b/gi, "mengkaji")
+    .replace(/\bmenyoroti pentingnya\b/gi, "menunjukkan")
+    .replace(/\bmenggarisbawahi signifikansi\b/gi, "menunjukkan")
+    .replace(/\bmemfasilitasi\b/gi, "membantu")
+    .replace(/\btantangan dan peluang\b/gi, "tantangan serta potensi")
+    // 9. Normalisasi spasi berlebih
     .replace(/[ \t]{3,}/g, "  ");
 }
+
 
 export function cleanSectionsData(sections) {
   if (!Array.isArray(sections)) return [];

@@ -17,6 +17,8 @@ import proposalRoutes from "./routes/proposal.routes.js";
 import memoryRoutes from "./routes/memory.routes.js";
 import promptRoutes from "./routes/prompt.routes.js";
 import skillRoutes from "./routes/skill.routes.js";
+import rulesRoutes from "./routes/rules.routes.js";
+import subbabRoutes from "./routes/subbab.routes.js";
 import { seedDefaultTemplate } from "./services/template.service.js";
 import { initDefaultSecrets } from "./services/config.service.js";
 
@@ -186,6 +188,8 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/prompts", promptRoutes);
 app.use("/api/skills", skillRoutes);
+app.use("/api/rules", rulesRoutes);
+app.use("/api/subbab", subbabRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/projects/:projectId/framework", frameworkRoutes);
 app.use("/api/projects/:projectId/journals", journalRoutes);

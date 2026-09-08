@@ -9,6 +9,7 @@ import { generateFrameworkFromJournals } from "./framework.service.js";
 import { buildMemoryContext, updateWriterDecisions } from "./memory.service.js";
 import { getSkillPrompt } from "./prompt.service.js";
 import { formatBibliography, formatInTextCitation } from "../lib/citation-engine.js";
+import { resolveDocumentCitations } from "../lib/citation-registry.js";
 import {
   Document,
   Packer,
@@ -17,11 +18,15 @@ import {
   TableRow,
   TableCell,
   TextRun,
+  ImageRun,
   HeadingLevel,
   AlignmentType,
   BorderStyle,
   WidthType,
 } from "docx";
+import { renderBlocksToDocx, renderBlocksToLatex } from "../lib/render-engine/index.js";
+import { sanitizeAcademicText } from "../lib/academic-cleaner.js";
+
 
 /**
  * 1. Ambil Data Proposal Lengkap (Profil Kampus + Kanvas Node + Jurnal Pendukung)
@@ -81,14 +86,49 @@ export async function getProposalData(projectId, userId) {
     orderBy: { order: "asc" },
   });
 
-  // Susun matriks literature review dari jurnal approved (Fase 2)
-  const literatureMatrix = (project.journals || []).map((j) => {
+  // Sinkronkan urutan sitasi global dan remap [1], [2] antar sub-bab secara presisi (§3 doc 020)
+  const {
+    orderedJournals,
+    rewrittenOutlineItems,
+    globalCitationMap,
+  } = resolveDocumentCitations(outlineItems, project.journals || []);
+
+  // Ambil bukti sitasi terverifikasi dari journalCitationEvidence
+  const allEvidences = await prisma.journalCitationEvidence.findMany({
+    where: { projectId },
+    orderBy: { pageNumber: "asc" },
+  }).catch(() => []);
+
+  const evidenceByJournalId = new Map();
+  for (const ev of allEvidences) {
+    if (!evidenceByJournalId.has(ev.journalId)) {
+      evidenceByJournalId.set(ev.journalId, []);
+    }
+    evidenceByJournalId.get(ev.journalId).push(ev);
+  }
+
+  // Susun matriks literature review dari jurnal yang BENAR-BENAR dikutip (Fase 2 & §3)
+  const literatureMatrix = orderedJournals.map((j) => {
     const mappedNodes = (j.nodeMappings || [])
       .map((m) => {
         const node = project.frameworkNodes.find((n) => n.id === m.nodeId);
         return node ? `${node.label} (${m.evidenceType === "SUPPORTS" ? "Mendukung" : "Bertentangan"})` : null;
       })
       .filter(Boolean);
+
+    const jEvs = evidenceByJournalId.get(j.id) || [];
+    const combinedQuotes = [
+      ...(j.nodeMappings || []).map((m) => ({
+        quote: m.quote,
+        page: m.sourcePage || 1,
+        evidenceType: m.evidenceType,
+      })),
+      ...jEvs.map((e) => ({
+        quote: e.paraphrasedQuote || e.exactQuote,
+        page: e.pageNumber || 1,
+        evidenceType: e.citationCategory || "EMPIRIS",
+      })),
+    ];
 
     return {
       id: j.id,
@@ -101,41 +141,8 @@ export async function getProposalData(projectId, userId) {
       sampleSize: j.rawExtraction?.sampleSize || "-",
       keyFindings: j.keyFindings || j.abstract?.slice(0, 250) || "Temuan empiris terkait fokus penelitian.",
       mappedVariables: mappedNodes.join(", ") || "Variabel Terkait",
-      quotes: (j.nodeMappings || []).map((m) => ({
-        quote: m.quote,
-        page: m.sourcePage || 1,
-        evidenceType: m.evidenceType,
-      })),
+      quotes: combinedQuotes,
     };
-  });
-
-  // Gabungkan dengan Evidence Jurnal dari Research Blueprint (Tahap 5)
-  outlineItems.forEach((item) => {
-    if (Array.isArray(item.evidence)) {
-      item.evidence.forEach((ev) => {
-        if (ev && ev.title && !literatureMatrix.some((m) => m.title.toLowerCase() === ev.title.toLowerCase() || (m.id && m.id === ev.id))) {
-          const rawPub = ev.publication || ev.venue || "";
-          const cleanPublication = rawPub
-            .replace(/\s*\(OpenAlex\)/gi, "")
-            .replace(/OpenAlex/gi, "Jurnal Ilmiah Terindeks")
-            .trim() || (ev.doi ? "Jurnal Ilmiah Nasional Terakreditasi" : "Publikasi Ilmiah Akademik");
-
-          literatureMatrix.push({
-            id: ev.id || `ev-${Math.random()}`,
-            title: ev.title,
-            authors: ev.authors || "Penulis",
-            year: ev.year || new Date().getFullYear(),
-            publication: cleanPublication,
-            doi: ev.doi || "-",
-            methodology: "Studi Empiris",
-            sampleSize: "-",
-            keyFindings: ev.abstract?.slice(0, 300) || `Bukti empiris rujukan sub-bab ${item.itemId} (${item.title})`,
-            mappedVariables: `${item.itemId} ${item.title}`,
-            quotes: [],
-          });
-        }
-      });
-    }
   });
 
   const user = await prisma.user.findUnique({
@@ -157,7 +164,9 @@ export async function getProposalData(projectId, userId) {
     project,
     profile,
     literatureMatrix,
-    outlineItems,
+    outlineItems: rewrittenOutlineItems,
+    orderedJournals,
+    globalCitationMap,
     savedDraft: project.commonNarrative?.proposalDraft || null,
   };
 }
@@ -224,6 +233,27 @@ export async function saveProposalData(projectId, userId, draftData = {}) {
 }
 
 /**
+ * Pembersih rekursif anti-slop untuk seluruh field proposal (Bab 1, Bab 2, Bab 3, dll)
+ */
+function cleanObjectText(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => (typeof item === "string" ? sanitizeAcademicText(item) : cleanObjectText(item)));
+  }
+  const cleaned = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === "string") {
+      cleaned[k] = sanitizeAcademicText(v);
+    } else if (typeof v === "object" && v !== null) {
+      cleaned[k] = cleanObjectText(v);
+    } else {
+      cleaned[k] = v;
+    }
+  }
+  return cleaned;
+}
+
+/**
  * 3. Generate Proposal Skripsi Lengkap AI (Bab 1, Bab 2, Bab 3, Matriks, Daftar Pustaka)
  */
 export async function generateAcademicProposal(projectId, userId, options = {}) {
@@ -246,10 +276,16 @@ export async function generateAcademicProposal(projectId, userId, options = {}) 
 
   // Rangkuman Evidence Jurnal dari Research Blueprint
   const journalsSummary = (literatureMatrix || [])
-    .map(
-      (j, idx) =>
-        `[${idx + 1}] "${j.title}" oleh ${j.authors} (${j.year}) ${j.doi && j.doi !== "-" ? `[DOI: ${j.doi}]` : ""}\n   Fokus: ${j.mappedVariables}\n   Temuan/Abstrak: ${j.keyFindings}`
-    )
+    .map((j, idx) => {
+      const quotesText = (j.quotes || []).length > 0
+        ? "\n   Bukti Empiris & Kutipan Riil Halaman:\n" +
+          (j.quotes || [])
+            .slice(0, 3)
+            .map((q) => `   - [Hal. ${q.page} • ${q.evidenceType}]: "${q.quote}"`)
+            .join("\n")
+        : "";
+      return `[${idx + 1}] "${j.title}" oleh ${j.authors} (${j.year}) ${j.doi && j.doi !== "-" ? `[DOI: ${j.doi}]` : ""}\n   Fokus: ${j.mappedVariables}\n   Temuan/Abstrak: ${j.keyFindings}${quotesText}`;
+    })
     .join("\n\n");
 
   const itemLatarBelakang = (outlineItems || []).find((i) => i.itemId === "1.1");
@@ -399,7 +435,8 @@ FORMAT OUTPUT WAJIB JSON MURNI TANPA WRAPPER MARKDOWN:
 
     const contentText = aiResponse.content;
     if (contentText) {
-      const parsed = parseJsonFromText(contentText);
+      const rawParsed = parseJsonFromText(contentText);
+      const parsed = cleanObjectText(rawParsed);
       if (parsed.bab1 && parsed.bab2) {
         const resultData = {
           ...parsed,
@@ -442,7 +479,8 @@ FORMAT OUTPUT WAJIB JSON MURNI TANPA WRAPPER MARKDOWN:
 
     const contentText = groqRes.choices[0]?.message?.content;
     if (contentText) {
-      const parsed = parseJsonFromText(contentText);
+      const rawParsed = parseJsonFromText(contentText);
+      const parsed = cleanObjectText(rawParsed);
       if (parsed.bab1) {
         const resultData = {
           ...parsed,
@@ -549,6 +587,50 @@ function formatApa7thCitation(j) {
     return `${author} (${year}). ${title}. ${pub ? `${pub}. ` : ""}${url}`.trim();
   }
   return `${author} (${year}). ${title}. ${pub ? `${pub}.` : ""}`.trim();
+}
+
+/**
+ * Helper untuk menormalisasi field yang bisa berupa string, array of strings,
+ * atau objek { intro: string, items: string[] }.
+ * Mencegah fatal error TypeError: .map is not a function saat export DOCX & LaTeX.
+ */
+function normalizeListAndIntro(fieldValue, defaultIntro = "") {
+  if (!fieldValue) {
+    return { intro: defaultIntro, items: [] };
+  }
+  if (Array.isArray(fieldValue)) {
+    return {
+      intro: defaultIntro,
+      items: fieldValue.map((it) => (typeof it === "string" ? it.trim() : JSON.stringify(it))).filter(Boolean),
+    };
+  }
+  if (typeof fieldValue === "object") {
+    const intro = fieldValue.intro || defaultIntro;
+    const items = Array.isArray(fieldValue.items)
+      ? fieldValue.items.map((it) => (typeof it === "string" ? it.trim() : JSON.stringify(it))).filter(Boolean)
+      : [];
+    return { intro, items };
+  }
+  if (typeof fieldValue === "string") {
+    const trimmed = fieldValue.trim();
+    if (!trimmed) return { intro: defaultIntro, items: [] };
+    const lines = trimmed.split("\n").map((l) => l.trim()).filter(Boolean);
+    const introLines = [];
+    const itemLines = [];
+    for (const line of lines) {
+      if (/^(\d+[\.\)]|[-*•])\s+/.test(line)) {
+        itemLines.push(line.replace(/^(\d+[\.\)]|[-*•])\s*/, "").trim());
+      } else if (itemLines.length === 0) {
+        introLines.push(line);
+      } else {
+        itemLines.push(line);
+      }
+    }
+    const intro = introLines.join("\n") || defaultIntro;
+    const items = itemLines.length > 0 ? itemLines : (lines.length > 0 && !introLines.length ? lines : []);
+    return { intro, items };
+  }
+  return { intro: defaultIntro, items: [] };
 }
 
 /**
@@ -732,67 +814,121 @@ export async function exportProposalDocxFile(projectId, userId) {
     );
   }
 
+  const docxLibs = {
+    Paragraph,
+    TextRun,
+    ImageRun,
+    Table,
+    TableRow,
+    TableCell,
+    AlignmentType,
+    WidthType,
+    BorderStyle,
+  };
+
   // ── BAB I: PENDAHULUAN ──
+  const rm = normalizeListAndIntro(data.bab1?.rumusanMasalah, "Berdasarkan latar belakang di atas, rumusan masalah dalam penelitian ini adalah:");
+  const tp = normalizeListAndIntro(data.bab1?.tujuanPenelitian, "Tujuan yang ingin dicapai dalam penelitian ini adalah:");
+  const idm = normalizeListAndIntro(data.bab1?.identifikasiMasalah);
+  const bm = normalizeListAndIntro(data.bab1?.batasanMasalah);
+
   docChildren.push(
     createHeading1("BAB I\nPENDAHULUAN", true),
     createHeading2("1.1 Latar Belakang Masalah"),
-    createBodyParagraph(data.bab1.latarBelakang),
-    createHeading2("1.2 Rumusan Masalah"),
-    ...(data.bab1.rumusanMasalah || []).map((r) => createBodyParagraph(r, false)),
-    createHeading2("1.3 Tujuan Penelitian"),
-    ...(data.bab1.tujuanPenelitian || []).map((t) => createBodyParagraph(t, false)),
-    createHeading2("1.4 Manfaat Penelitian"),
-    createBodyParagraph(`1.4.1 Manfaat Teoretis: ${data.bab1.manfaatPenelitian?.teoretis || "Kontribusi teoritis..."}`),
-    createBodyParagraph(`1.4.2 Manfaat Praktis: ${data.bab1.manfaatPenelitian?.praktis || "Kontribusi praktis..."}`)
+    ...renderBlocksToDocx(data.bab1?.latarBelakang || "", docxLibs)
+  );
+
+  let bab1Counter = 2;
+
+  if (idm.items.length > 0 || (idm.intro && idm.intro !== "undefined")) {
+    docChildren.push(createHeading2(`1.${bab1Counter++} Identifikasi Masalah`));
+    if (idm.intro) docChildren.push(createBodyParagraph(idm.intro, false));
+    idm.items.forEach((item, idx) => {
+      docChildren.push(createBodyParagraph(`${idx + 1}. ${item}`, false));
+    });
+  }
+
+  docChildren.push(createHeading2(`1.${bab1Counter++} Rumusan Masalah`));
+  if (rm.intro) docChildren.push(createBodyParagraph(rm.intro, false));
+  rm.items.forEach((item, idx) => {
+    docChildren.push(createBodyParagraph(`${idx + 1}. ${item}`, false));
+  });
+
+  if (bm.items.length > 0 || (bm.intro && bm.intro !== "undefined")) {
+    docChildren.push(createHeading2(`1.${bab1Counter++} Batasan Masalah`));
+    if (bm.intro) docChildren.push(createBodyParagraph(bm.intro, false));
+    bm.items.forEach((item, idx) => {
+      docChildren.push(createBodyParagraph(`${idx + 1}. ${item}`, false));
+    });
+  }
+
+  docChildren.push(createHeading2(`1.${bab1Counter++} Tujuan Penelitian`));
+  if (tp.intro) docChildren.push(createBodyParagraph(tp.intro, false));
+  tp.items.forEach((item, idx) => {
+    docChildren.push(createBodyParagraph(`${idx + 1}. ${item}`, false));
+  });
+
+  const manfaatNum = bab1Counter++;
+  docChildren.push(
+    createHeading2(`1.${manfaatNum} Manfaat Penelitian`),
+    createBodyParagraph(`1.${manfaatNum}.1 Manfaat Teoretis: ${data.bab1?.manfaatPenelitian?.teoretis || "Memberikan sumbangsih pemikiran dan memperkaya khazanah keilmuan."}`, false),
+    createBodyParagraph(`1.${manfaatNum}.2 Manfaat Praktis: ${data.bab1?.manfaatPenelitian?.praktis || "Memberikan solusi aplikatif dan bahan pertimbangan bagi pihak terkait."}`, false)
   );
 
   // Custom sub-chapters for Bab 1
   customSubs
     .filter((s) => s.chapter === "bab1" && !s.hidden)
     .forEach((s) => {
-      docChildren.push(createHeading2(s.title), createBodyParagraph(s.content));
+      docChildren.push(createHeading2(s.title), ...renderBlocksToDocx(s.content, docxLibs));
     });
 
   // ── BAB II: TINJAUAN PUSTAKA & MATRIKS ──
+  const hip = normalizeListAndIntro(data.bab2?.hipotesis);
   docChildren.push(
     createHeading1("BAB II\nTINJAUAN PUSTAKA & KERANGKA PEMIKIRAN", true),
     createHeading2("2.1 Landasan Teori & Variabel Riset"),
-    createBodyParagraph(data.bab2.landasanTeori),
+    ...renderBlocksToDocx(data.bab2?.landasanTeori || "", docxLibs),
     createHeading2("2.2 Matriks Penelitian Terdahulu (State of the Art)"),
     new Table({
       rows: [tableHeaderRow, ...tableDataRows],
     }),
     createHeading2("2.3 Kerangka Konseptual"),
-    createBodyParagraph(data.bab2.kerangkaKonseptual),
-    createHeading2("2.4 Hipotesis Penelitian"),
-    ...(data.bab2.hipotesis || []).map((h) => createBodyParagraph(h, false))
+    ...renderBlocksToDocx(data.bab2?.kerangkaKonseptual || "", docxLibs),
+    createHeading2("2.4 Hipotesis Penelitian")
   );
+
+  if (hip.intro) docChildren.push(createBodyParagraph(hip.intro, false));
+  if (hip.items.length > 0) {
+    hip.items.forEach((h, idx) => docChildren.push(createBodyParagraph(`${idx + 1}. ${h}`, false)));
+  } else if (typeof data.bab2?.hipotesis === "string" && data.bab2.hipotesis.trim()) {
+    docChildren.push(createBodyParagraph(data.bab2.hipotesis, false));
+  }
 
   // Custom sub-chapters for Bab 2
   customSubs
     .filter((s) => s.chapter === "bab2" && !s.hidden)
     .forEach((s) => {
-      docChildren.push(createHeading2(s.title), createBodyParagraph(s.content));
+      docChildren.push(createHeading2(s.title), ...renderBlocksToDocx(s.content, docxLibs));
     });
 
   // ── BAB III: METODOLOGI PENELITIAN ──
   docChildren.push(
     createHeading1("BAB III\nMETODOLOGI PENELITIAN", true),
     createHeading2("3.1 Desain Penelitian"),
-    createBodyParagraph(data.bab3.desainPenelitian),
+    ...renderBlocksToDocx(data.bab3.desainPenelitian, docxLibs),
     createHeading2("3.2 Populasi dan Sampel"),
-    createBodyParagraph(data.bab3.populasiSampel),
+    ...renderBlocksToDocx(data.bab3.populasiSampel, docxLibs),
     createHeading2("3.3 Teknik Pengumpulan Data"),
-    createBodyParagraph(data.bab3.teknikPengumpulanData),
+    ...renderBlocksToDocx(data.bab3.teknikPengumpulanData, docxLibs),
     createHeading2("3.4 Teknik Analisis Data"),
-    createBodyParagraph(data.bab3.teknikAnalisisData)
+    ...renderBlocksToDocx(data.bab3.teknikAnalisisData, docxLibs)
   );
 
   // Custom sub-chapters for Bab 3
   customSubs
     .filter((s) => s.chapter === "bab3" && !s.hidden)
     .forEach((s) => {
-      docChildren.push(createHeading2(s.title), createBodyParagraph(s.content));
+      docChildren.push(createHeading2(s.title), ...renderBlocksToDocx(s.content, docxLibs));
     });
 
   // ── DAFTAR PUSTAKA ──
@@ -934,31 +1070,51 @@ export async function exportProposalLatexZipFile(projectId, userId, templateType
     }
     zip.file("Cover.tex", coverContent);
 
+    // Helper to process section content to LaTeX with figures
+    const addLatexSection = (rawText, chapterPrefix) => {
+      const { latexString, figureFiles } = renderBlocksToLatex(rawText, escapeLatex, { chapterPrefix });
+      for (const fig of figureFiles) {
+        zip.file(fig.zipPath, fig.buffer);
+      }
+      return latexString;
+    };
+
     // 3. Bab 1: Pendahuluan.tex
-    const pendahuluanContent = `\\chapter{Pendahuluan}
+    const bab1LatarLatex = addLatexSection(data.bab1?.latarBelakang || "", "1");
+    const rm = normalizeListAndIntro(data.bab1?.rumusanMasalah, "Berdasarkan latar belakang di atas, rumusan masalah dalam penelitian ini adalah:");
+    const tp = normalizeListAndIntro(data.bab1?.tujuanPenelitian, "Tujuan yang ingin dicapai dalam penelitian ini adalah:");
+    const idm = normalizeListAndIntro(data.bab1?.identifikasiMasalah);
+    const bm = normalizeListAndIntro(data.bab1?.batasanMasalah);
 
-\\section{Latar Belakang}
-${data.bab1.latarBelakang}
+    let pendahuluanContent = `\\chapter{Pendahuluan}\n\n\\section{Latar Belakang}\n${bab1LatarLatex}\n`;
 
-\\section{Perumusan Masalah}
-Berdasarkan latar belakang di atas, rumusan masalah dalam penelitian ini adalah:
-\\begin{enumerate}
-${data.bab1.rumusanMasalah.map((r) => `  \\item ${escapeLatex(r.replace(/^\d+\.\s*/, ""))}`).join("\n")}
-\\end{enumerate}
+    if (idm.items.length > 0 || (idm.intro && idm.intro !== "undefined")) {
+      pendahuluanContent += `\n\\section{Identifikasi Masalah}\n`;
+      if (idm.intro) pendahuluanContent += `${escapeLatex(idm.intro)}\n`;
+      if (idm.items.length > 0) {
+        pendahuluanContent += `\\begin{enumerate}\n${idm.items.map((it) => `  \\item ${escapeLatex(it.replace(/^\d+[\.\)]\s*/, ""))}`).join("\n")}\n\\end{enumerate}\n`;
+      }
+    }
 
-\\section{Tujuan}
-Tujuan yang ingin dicapai dalam penelitian ini adalah:
-\\begin{enumerate}
-${data.bab1.tujuanPenelitian.map((t) => `  \\item ${escapeLatex(t.replace(/^\d+\.\s*/, ""))}`).join("\n")}
-\\end{enumerate}
+    pendahuluanContent += `\n\\section{Perumusan Masalah}\n${escapeLatex(rm.intro)}\n`;
+    if (rm.items.length > 0) {
+      pendahuluanContent += `\\begin{enumerate}\n${rm.items.map((r) => `  \\item ${escapeLatex(r.replace(/^\d+[\.\)]\s*/, ""))}`).join("\n")}\n\\end{enumerate}\n`;
+    }
 
-\\section{Manfaat Penelitian}
-\\subsection{Manfaat Teoretis}
-${escapeLatex(data.bab1.manfaatPenelitian.teoretis)}
+    if (bm.items.length > 0 || (bm.intro && bm.intro !== "undefined")) {
+      pendahuluanContent += `\n\\section{Batasan Masalah}\n`;
+      if (bm.intro) pendahuluanContent += `${escapeLatex(bm.intro)}\n`;
+      if (bm.items.length > 0) {
+        pendahuluanContent += `\\begin{enumerate}\n${bm.items.map((it) => `  \\item ${escapeLatex(it.replace(/^\d+[\.\)]\s*/, ""))}`).join("\n")}\n\\end{enumerate}\n`;
+      }
+    }
 
-\\subsection{Manfaat Praktis}
-${escapeLatex(data.bab1.manfaatPenelitian.praktis)}
-`;
+    pendahuluanContent += `\n\\section{Tujuan}\n${escapeLatex(tp.intro)}\n`;
+    if (tp.items.length > 0) {
+      pendahuluanContent += `\\begin{enumerate}\n${tp.items.map((t) => `  \\item ${escapeLatex(t.replace(/^\d+[\.\)]\s*/, ""))}`).join("\n")}\n\\end{enumerate}\n`;
+    }
+
+    pendahuluanContent += `\n\\section{Manfaat Penelitian}\n\\subsection{Manfaat Teoretis}\n${escapeLatex(data.bab1?.manfaatPenelitian?.teoretis || "-")}\n\n\\subsection{Manfaat Praktis}\n${escapeLatex(data.bab1?.manfaatPenelitian?.praktis || "-")}\n`;
     zip.file("Pendahuluan.tex", pendahuluanContent);
 
     // 4. Bab 2: Kajian-Pustaka.tex
@@ -969,10 +1125,22 @@ ${escapeLatex(data.bab1.manfaatPenelitian.praktis)}
       )
       .join("\n");
 
+    const bab2TeoriLatex = addLatexSection(data.bab2?.landasanTeori || "", "2");
+    const bab2KerangkaLatex = addLatexSection(data.bab2?.kerangkaKonseptual || "", "2");
+    const hip = normalizeListAndIntro(data.bab2?.hipotesis);
+
+    let hipotesisLatex = "";
+    if (hip.intro) hipotesisLatex += `${escapeLatex(hip.intro)}\n`;
+    if (hip.items.length > 0) {
+      hipotesisLatex += `\\begin{enumerate}\n${hip.items.map((h) => `  \\item ${escapeLatex(h.replace(/^\d+[\.\)]\s*/, ""))}`).join("\n")}\n\\end{enumerate}`;
+    } else if (typeof data.bab2?.hipotesis === "string" && data.bab2.hipotesis.trim()) {
+      hipotesisLatex += escapeLatex(data.bab2.hipotesis);
+    }
+
     const kajianPustakaContent = `\\chapter{Kajian Pustaka dan Kerangka Berpikir}
 
 \\section{Landasan Teori}
-${data.bab2.landasanTeori}
+${bab2TeoriLatex}
 
 \\section{Penelitian Terdahulu (State of the Art)}
 Berikut adalah tabel matriks telaah pustaka komparatif penelitian terdahulu:
@@ -991,29 +1159,32 @@ ${matrixRowsLatex}
 \\end{table}
 
 \\section{Kerangka Konseptual}
-${data.bab2.kerangkaKonseptual}
+${bab2KerangkaLatex}
 
 \\section{Hipotesis Penelitian}
-\\begin{enumerate}
-${data.bab2.hipotesis.map((h) => `  \\item ${escapeLatex(h)}`).join("\n")}
-\\end{enumerate}
+${hipotesisLatex}
 `;
     zip.file("Kajian-Pustaka.tex", kajianPustakaContent);
 
     // 5. Bab 3: Metodologi.tex
+    const bab3DesainLatex = addLatexSection(data.bab3.desainPenelitian, "3");
+    const bab3PopulasiLatex = addLatexSection(data.bab3.populasiSampel, "3");
+    const bab3KumpulLatex = addLatexSection(data.bab3.teknikPengumpulanData, "3");
+    const bab3AnalisisLatex = addLatexSection(data.bab3.teknikAnalisisData, "3");
+
     const metodologiContent = `\\chapter{Metodologi Penelitian}
 
 \\section{Desain Penelitian}
-${escapeLatex(data.bab3.desainPenelitian)}
+${bab3DesainLatex}
 
 \\section{Populasi dan Sampel}
-${escapeLatex(data.bab3.populasiSampel)}
+${bab3PopulasiLatex}
 
 \\section{Teknik Pengumpulan Data}
-${escapeLatex(data.bab3.teknikPengumpulanData)}
+${bab3KumpulLatex}
 
 \\section{Teknik Analisis Data}
-${escapeLatex(data.bab3.teknikAnalisisData)}
+${bab3AnalisisLatex}
 `;
     zip.file("Metodologi.tex", metodologiContent);
 

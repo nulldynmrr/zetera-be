@@ -5,6 +5,8 @@ import { executeAiCompletion } from "./ai-router.service.js";
 import { buildMemoryContext, updateCitationMap, updateTocSnapshot } from "./memory.service.js";
 import { getAllSubchapterGuides, getSkillPrompt } from "./prompt.service.js";
 import { resolveSubchapterTag, resolveSubchapterSkillPrompt } from "./taxonomy.service.js";
+import { sanitizeAcademicText } from "../lib/academic-cleaner.js";
+import { matchSubBabTag, matchBabTag } from "../lib/subbab-dictionary.js";
 
 function getGroqClient() {
   const apiKey =
@@ -2061,6 +2063,7 @@ ATURAN WAJIB AKADEMIS:
       data: {
         researchTask: updatedTask,
         userNotes: combinedDraft,
+        citedSourceIds: [],
         status: "IN_PROGRESS",
       },
     });
@@ -2239,11 +2242,19 @@ ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
       }
     }
 
+    // Sanitasi anti-slop (hapus em-dash, klise pembuka/penutup, dsb)
+    combinedDraft = sanitizeAcademicText(combinedDraft);
+    pointAnswers = pointAnswers.map((p) => ({
+      ...p,
+      text: sanitizeAcademicText(p.text),
+    }));
+
     // Simpan hasil ke database ResearchOutlineItem
     await prisma.researchOutlineItem.update({
       where: { id: item.id },
       data: {
         userNotes: combinedDraft,
+        citedSourceIds: [],
         status: "IN_PROGRESS",
       },
     });
@@ -2270,17 +2281,42 @@ ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
     ];
   }
 
+  // Ambil data bukti empiris riil dari journalCitationEvidence untuk grounding mendalam
+  const projectEvidences = await prisma.journalCitationEvidence.findMany({
+    where: { projectId: project.id },
+    orderBy: { pageNumber: "asc" },
+  }).catch(() => []);
+
+  const evidenceByJournalId = new Map();
+  for (const ev of projectEvidences) {
+    if (!evidenceByJournalId.has(ev.journalId)) {
+      evidenceByJournalId.set(ev.journalId, []);
+    }
+    evidenceByJournalId.get(ev.journalId).push(ev);
+  }
+
   // Format Pool Jurnal Terverifikasi
-  const verifiedJournals = (project.journals || []).map((j, idx) => ({
-    seq: idx + 1,
-    id: j.id,
-    title: j.title,
-    authors: j.authors || "Penulis",
-    year: j.year || new Date().getFullYear(),
-    publication: j.publication || "Jurnal Ilmiah",
-    doi: j.doi && j.doi !== "-" ? j.doi : null,
-    findings: j.keyFindings || j.abstract || "Temuan riset empiris",
-  }));
+  const verifiedJournals = (project.journals || []).map((j, idx) => {
+    const jEvs = evidenceByJournalId.get(j.id) || [];
+    const evidenceText = jEvs.length > 0
+      ? "\n   Bukti Empiris Halaman Riil:\n" +
+        jEvs
+          .slice(0, 3)
+          .map((e) => `   - [Hal. ${e.pageNumber || "?"} • ${e.citationCategory}]: "${e.paraphrasedQuote || e.exactQuote}"`)
+          .join("\n")
+      : "";
+
+    return {
+      seq: idx + 1,
+      id: j.id,
+      title: j.title,
+      authors: j.authors || "Penulis",
+      year: j.year || new Date().getFullYear(),
+      publication: j.publication || "Jurnal Ilmiah",
+      doi: j.doi && j.doi !== "-" ? j.doi : null,
+      findings: (j.keyFindings || j.abstract || "Temuan riset empiris") + evidenceText,
+    };
+  });
 
   const journalsContext = verifiedJournals.length > 0
     ? verifiedJournals
@@ -2293,23 +2329,93 @@ ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
 
   const memoryContext = await buildMemoryContext(projectId).catch(() => "");
 
-  const resolvedSkill = await resolveSubchapterSkillPrompt(
-    {
-      itemId: item.itemId,
-      title: item.title,
-      tag: item.tag,
-    },
-    prisma
-  );
+  // ── RESOLVER RULES BARU (Multi-Variant per Pendekatan Riset §4.3) ──
+  let dynamicRulesInstructions = "";
+  let citationConstraintText = "2. SANGAT PENTING - SITASI HARUS TEPAT: Sisipkan nomor sitasi kurung siku [1], [2], dst. yang PERSIS merujuk pada nomor jurnal [seq] dari daftar jurnal di atas! JANGAN MENGUBAH NOMOR SITASI. Jurnal pertama adalah [1], jurnal kedua [2], dst.";
 
-  const dbPrompt = resolvedSkill?.prompt;
-  let dbInstructions = "";
-  if (dbPrompt?.systemPrompt) {
-    dbInstructions = `\nPANDUAN RESEP AKADEMIK RESMI DARI DATABASE (${resolvedSkill.code} - ${dbPrompt.title}):\n${dbPrompt.systemPrompt
-      .replace(/\{\{TOPIC\}\}/g, `"${project.title}"`)
-      .replace(/\{\{BACKGROUND_CONTEXT\}\}/g, project.commonNarrative?.background || "")}\n`;
-    if (Array.isArray(dbPrompt.recipeSteps) && dbPrompt.recipeSteps.length > 0) {
-      dbInstructions += `LANGKAH-LANGKAH RESEP STANDAR DARI DATABASE:\n` + dbPrompt.recipeSteps.map((s, i) => `${i + 1}. ${s}`).join("\n") + "\n";
+  try {
+    const normTag = (item.tag || "").toLowerCase().replace(/[^\w]/g, "_").trim();
+    const slugTag = (item.tag || "").toLowerCase().replace(/[^\w]/g, "-").trim();
+    const dictTag = matchSubBabTag(item.tag) || matchSubBabTag(item.title);
+
+    const subBab = await prisma.subBab.findFirst({
+      where: {
+        OR: [
+          ...(dictTag ? [{ tag: dictTag }] : []),
+          { tag: normTag },
+          { tag: slugTag },
+          { title: { contains: item.title } },
+        ],
+      },
+      include: {
+        outputSpec: true,
+        mappings: {
+          include: {
+            rule: {
+              include: { variants: true },
+            },
+          },
+          orderBy: { order: "asc" },
+        },
+      },
+    });
+
+    if (subBab && subBab.mappings?.length > 0) {
+      const userApproach = (project.approachType || "KUANTITATIF").toUpperCase();
+      const approachMap = {
+        QUANTITATIVE: "KUANTITATIF",
+        QUALITATIVE: "KUALITATIF",
+        MIXED: "CAMPURAN",
+        EXPERIMENT: "EKSPERIMEN",
+        EXPERIMENTAL: "EKSPERIMEN",
+        DESCRIPTIVE: "DESKRIPTIF",
+        EMPIRICAL: "EMPIRIS",
+      };
+      const targetApproach = approachMap[userApproach] || userApproach;
+
+      const assembledRulePrompts = subBab.mappings.map((m, idx) => {
+        const r = m.rule;
+        const variant = r.variants?.find((v) => v.researchApproach === targetApproach)
+          || r.variants?.find((v) => v.researchApproach === "GENERIC");
+        const activePrompt = variant?.systemPrompt || r.systemPrompt;
+        const approachLabel = variant?.researchApproach || "UMUM";
+
+        return `[Aturan ${idx + 1}: ${r.name} (${r.category} • Varian: ${approachLabel})]\n${activePrompt
+          .replace(/\{\{TOPIC\}\}/g, `"${project.title}"`)
+          .replace(/\{\{PRODI\}\}/g, `"${project.prodi || "Teknik Informatika / Ilmu Komputer"}"`)
+          .replace(/\{\{BACKGROUND_CONTEXT\}\}/g, project.commonNarrative?.background || "")}`;
+      });
+
+      dynamicRulesInstructions = `\nPANDUAN ATURAN RESMI SUB-BAB DARI SISTEM (${subBab.title} • Format: ${subBab.outputSpec?.formatStyle || "PARAGRAPH"}):\n` +
+        assembledRulePrompts.join("\n\n") + "\n";
+
+      if (subBab.outputSpec?.citationPolicy === "NONE") {
+        citationConstraintText = "2. BEBAS SITASI: Dilarang keras menyertakan sitasi atau kurung siku [1], [2]. Sub-bab ini murni alur naskah internal tanpa sitasi.";
+      }
+    }
+  } catch (rErr) {
+    console.warn("[outlineService] SubBab rules resolver fallback:", rErr.message);
+  }
+
+  // Fallback legacy prompt jika rules baru belum terdefinisi
+  if (!dynamicRulesInstructions) {
+    const resolvedSkill = await resolveSubchapterSkillPrompt(
+      {
+        itemId: item.itemId,
+        title: item.title,
+        tag: item.tag,
+      },
+      prisma
+    );
+
+    const dbPrompt = resolvedSkill?.prompt;
+    if (dbPrompt?.systemPrompt) {
+      dynamicRulesInstructions = `\nPANDUAN RESEP AKADEMIK RESMI DARI DATABASE (${resolvedSkill.code} - ${dbPrompt.title}):\n${dbPrompt.systemPrompt
+        .replace(/\{\{TOPIC\}\}/g, `"${project.title}"`)
+        .replace(/\{\{BACKGROUND_CONTEXT\}\}/g, project.commonNarrative?.background || "")}\n`;
+      if (Array.isArray(dbPrompt.recipeSteps) && dbPrompt.recipeSteps.length > 0) {
+        dynamicRulesInstructions += `LANGKAH-LANGKAH RESEP STANDAR DARI DATABASE:\n` + dbPrompt.recipeSteps.map((s, i) => `${i + 1}. ${s}`).join("\n") + "\n";
+      }
     }
   }
 
@@ -2318,7 +2424,7 @@ Tugas Anda adalah MENJAWAB SEMUA BUTIR INSTRUKSI RISET (${bullets.length} Butir)
 - Judul Skripsi: "${project.title}"
 - Bidang Studi: "${project.prodi || "Teknik Informatika / Ilmu Komputer"}"
 - Pendekatan: "${project.approachType || "QUANTITATIVE"}"
-${dbInstructions}
+${dynamicRulesInstructions}
 DAFTAR JURNAL ILMIAH TERVERIFIKASI POOL PROYEK:
 ${journalsContext}
 
@@ -2327,11 +2433,21 @@ ${memoryContext ? memoryContext + "\n" : ""}
 DAFTAR BUTIR INSTRUKSI RISET YANG WAJIB DIJAWAB SATU PER SATU:
 ${bullets.map((b, idx) => `Poin ${idx + 1}: ${b.step || b}`).join("\n")}
 
-ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
+ATURAN WAJIB AKADEMIK & ANTI-AI SLOP (STRICT CONSTRAINTS):
 1. Jawab SETIAP butir instruksi di atas secara bernas, ilmiah, dan mendalam (panjang 2-4 kalimat berbobot per butir).
-2. SANGAT PENTING - SITASI HARUS TEPAT: Sisipkan nomor sitasi kurung siku [1], [2], dst. yang PERSIS merujuk pada nomor jurnal [seq] dari daftar jurnal di atas! JANGAN MENGUBAH NOMOR SITASI. Jurnal pertama adalah [1], jurnal kedua [2], dst.
-3. Gunakan bahasa Indonesia baku formal akademis (EYD/PUEBI), bernas, kohesif, dan bebas basa-basi.
-4. Format output WAJIB JSON murni:
+${citationConstraintText}
+3. PROTOKOL GROUNDING JURNAL BEREPUTASI (IEEE / SCOPUS / SINTA):
+   - Seluruh kutipan dan telaah data WAJIB merujuk pada artikel jurnal riil di daftar di atas.
+   - DILARANG KERAS MENGARANG SITASI, ANGKA, ATAU DOI PALSU!
+   - Parafrasekan seluruh temuan dengan kalimat sendiri (dilarang copy-paste verbatim).
+4. ATURAN MUTLAK ANTI-SLOP (2026 EDITION):
+   - DILARANG KERAS menggunakan tanda pisah em dash (—) ataupun en dash (–)! Gunakan titik, koma, atau kurung.
+   - DILARANG membuka dengan klise: "Di era modern ini", "Seiring perkembangan zaman", "Dalam konteks X yang semakin Y".
+   - DILARANG menutup dengan: "Sebagai kesimpulan,", "Dapat disimpulkan bahwa", "Pada akhirnya".
+   - Hindari kata AI puffery: "sangat krusial", "fundamental", "menyelami", "menyoroti pentingnya", "optimalisasi".
+   - Variasikan panjang kalimat secara dinamis (campur kalimat 4-7 kata dengan 20-30 kata).
+5. Gunakan bahasa Indonesia baku formal akademis (EYD/PUEBI), bernas, kohesif, dan bebas basa-basi.
+6. Format output WAJIB JSON murni:
 {
   "pointAnswers": [
     {
@@ -2360,28 +2476,47 @@ ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
   if (parsed && Array.isArray(parsed.pointAnswers) && parsed.pointAnswers.length > 0) {
     pointAnswers = parsed.pointAnswers.map((p, idx) => ({
       index: typeof p.index === "number" ? p.index : idx,
-      text: (p.text || "").trim(),
+      text: sanitizeAcademicText((p.text || "").trim()),
       citedJournals: Array.isArray(p.citedJournals) ? p.citedJournals : [],
     }));
-    combinedDraft = (parsed.combinedDraft || "").trim();
+    combinedDraft = sanitizeAcademicText((parsed.combinedDraft || "").trim());
   } else {
     pointAnswers = bullets.map((b, idx) => ({
       index: idx,
-      text: `Kajian ilmiah mengenai ${b.step || b} dengan dukungan bukti empiris penelitian terdahulu [1].`,
+      text: sanitizeAcademicText(`Kajian ilmiah mengenai ${b.step || b} dengan dukungan bukti empiris penelitian terdahulu [1].`),
       citedJournals: [1],
     }));
-    combinedDraft = pointAnswers.map((p) => p.text).join("\n\n");
+    combinedDraft = sanitizeAcademicText(pointAnswers.map((p) => p.text).join("\n\n"));
   }
 
   if (!combinedDraft && pointAnswers.length > 0) {
-    combinedDraft = pointAnswers.map((p) => p.text).join("\n\n");
+    combinedDraft = sanitizeAcademicText(pointAnswers.map((p) => p.text).join("\n\n"));
   }
+
+  // Rekam mapping nomor sitasi lokal ke ID Jurnal pool terverifikasi (Fix Bug Daftar Pustaka §3)
+  const citedSourceIds = [];
+  const seenCitedIds = new Set();
+  pointAnswers.forEach((p) => {
+    (p.citedJournals || []).forEach((seq) => {
+      const jObj = verifiedJournals[seq - 1];
+      if (jObj && !seenCitedIds.has(jObj.id)) {
+        seenCitedIds.add(jObj.id);
+        citedSourceIds.push({
+          seq,
+          journalId: jObj.id,
+          doi: jObj.doi,
+          title: jObj.title,
+        });
+      }
+    });
+  });
 
   // Simpan hasil ke database ResearchOutlineItem
   await prisma.researchOutlineItem.update({
     where: { id: item.id },
     data: {
       userNotes: combinedDraft,
+      citedSourceIds,
       status: "IN_PROGRESS",
     },
   });
@@ -2389,6 +2524,7 @@ ATURAN WAJIB AKADEMIK (STRICT CONSTRAINTS):
   return {
     pointAnswers,
     combinedDraft,
+    citedSourceIds,
     totalPoints: bullets.length,
   };
 }

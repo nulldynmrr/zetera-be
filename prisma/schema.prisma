@@ -795,3 +795,86 @@ model PromptTemplate {
   @@map("prompt_templates")
 }
 
+// ── 11. Rules & Multi-Variant Academic Engine (§4.1 Rencana Perbaikan 020) ──
+model Rule {
+  id           String              @id @default(cuid())
+  slug         String              @unique @db.VarChar(100) // "wiriting-ai-slop", "eyd-v"
+  name         String              @db.VarChar(200)
+  category     String              @default("WRITING_STYLE") @db.VarChar(50) // WRITING_STYLE | STRUCTURAL | CITATION
+  description  String?             @db.Text
+  systemPrompt String              @db.LongText
+  isActive     Boolean             @default(true)
+  isSystem     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  variants     RuleVariant[]
+  mappings     SubBabRuleMapping[]
+
+  @@index([category])
+  @@map("rules")
+}
+
+model RuleVariant {
+  id               String   @id @default(cuid())
+  ruleId           String
+  researchApproach String   @db.VarChar(50) // KUALITATIF | KUANTITATIF | EKSPERIMEN | DESKRIPTIF | CAMPURAN | EMPIRIS | GENERIC
+  systemPrompt     String   @db.LongText
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  rule             Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, researchApproach])
+  @@index([researchApproach])
+  @@map("rule_variants")
+}
+
+model SubBabRuleMapping {
+  id         String   @id @default(cuid())
+  subBabId   String
+  ruleId     String
+  order      Int      @default(0)
+  isRequired Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  subBab     SubBab   @relation(fields: [subBabId], references: [id], onDelete: Cascade)
+  rule       Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([subBabId, ruleId])
+  @@index([subBabId, order])
+  @@map("subbab_rule_mappings")
+}
+
+model SubBab {
+  id         String              @id @default(cuid())
+  tag        String              @unique @db.VarChar(100) // "latar_belakang"
+  title      String              @db.VarChar(255)
+  bab        Int                 @default(1)
+  order      Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  mappings   SubBabRuleMapping[]
+  outputSpec OutputSpec?
+
+  @@index([bab, order])
+  @@map("sub_babs")
+}
+
+model OutputSpec {
+  id             String   @id @default(cuid())
+  subBabId       String   @unique
+  formatStyle    String   @default("PARAGRAPH") @db.VarChar(50) // PARAGRAPH | ROADMAP | LIST | TABLE
+  citationPolicy String   @default("OPTIONAL") @db.VarChar(50)  // REQUIRED | OPTIONAL | NONE
+  jsonSchema     Json?
+  renderTemplate String?  @db.LongText
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  subBab         SubBab   @relation(fields: [subBabId], references: [id], onDelete: Cascade)
+
+  @@map("output_specs")
+}
+
+

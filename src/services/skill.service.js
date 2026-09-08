@@ -4,6 +4,7 @@ import { executeAiCompletion } from "./ai-router.service.js";
 import { getGroqChatCompletion, GROQ_MODELS } from "../lib/groq-config.js";
 import { formatBibliography, formatInTextCitation } from "../lib/citation-engine.js";
 import { resolveSubchapterTag } from "./taxonomy.service.js";
+import { sanitizeAcademicText } from "../lib/academic-cleaner.js";
 
 /**
  * ── ZETERA ACADEMIC SKILL LAYER (§6 & §5) ──────────────────────────────
@@ -126,11 +127,15 @@ export async function runSkill({
     "paraphrase",
     "paraphrase_academic",
     "citation_generator",
+    "writing_ai_slop",
+    "latar_belakang_skripsi",
+    "ieee_scopus_grounding",
   ];
 
   if (!allowedSkills.includes(skill)) {
     throw new Error(`Skill "${skill}" tidak dikenali. Pilihan: ${allowedSkills.join(", ")}`);
   }
+
 
   // 1. Resolve draft jika targetText kosong
   let textToProcess = (targetText || "").trim();
@@ -345,6 +350,138 @@ Tugas utama Anda adalah memparafrasekan naskah akademik skripsi/makalah dengan a
       };
     }
 
+    case "writing_ai_slop": {
+      // Hilangkan pola slop AI, terapkan variasi burstiness dan nol dash
+      const systemPrompt = `Anda adalah Senior Academic Editor & Humanizer Bahasa Indonesia.
+Tugas Anda adalah menulis ulang atau membersihkan naskah agar TERASA 100% AUTENTIK DITULIS MANUSIA dan lolos deteksi AI (Turnitin, GPTZero, Originality.ai):
+1. DILARANG TOTAL menggunakan tanda pisah em-dash (—) ataupun en-dash (–)! Ganti dengan titik (pecah kalimat), koma, atau kurung. Target: NOL DASH.
+2. Hapus seluruh pembuka klise: "Di era modern ini", "Seiring perkembangan zaman", "Dalam konteks X yang semakin Y", "Perlu diketahui bahwa". Awali langsung dengan fakta konkret.
+3. Hapus seluruh penutup boilerplate: "Sebagai kesimpulan,", "Dapat disimpulkan bahwa", "Pada akhirnya".
+4. Hapus kata puffery/buzzword AI: "sangat krusial", "fundamental", "komprehensif", "holistik", "menyelami", "menyoroti pentingnya", "optimalisasi".
+5. Tingkatkan burstiness: campurkan kalimat pendek (4-7 kata) dengan kalimat panjang (20-30 kata). Hindari panjang kalimat yang seragam.
+6. Pertahankan 100% data empiris dan seluruh penanda sitasi [1], [2] pada posisinya yang tepat.
+7. Format output: Berikan HANYA teks naskah hasil perbaikan tanpa kalimat pembuka atau penutup tambahan.`;
+
+      const aiRes = await executeAiCompletion({
+        featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+        userId,
+        projectId,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Tulis ulang naskah berikut agar bebas dari pola AI slop, nol dash, dan terasa autentik manusia:\n\n${textToProcess}` },
+        ],
+        temperature: 0.35,
+        maxTokens: 3500,
+      });
+
+      const cleaned = sanitizeAcademicText(aiRes.content?.trim() || textToProcess);
+      return {
+        ok: true,
+        output: cleaned,
+        sourceDraftVersion: draftVersion,
+      };
+    }
+
+    case "latar_belakang_skripsi": {
+      const project = await prisma.researchProject.findUnique({
+        where: { id: projectId },
+        include: {
+          journals: {
+            where: { status: "APPROVED" },
+            select: { id: true, title: true, abstract: true, keyFindings: true, authors: true, year: true, publication: true, doi: true },
+          },
+        },
+      });
+
+      const journalsList = (project?.journals || []).map((j, i) =>
+        `[${i + 1}] ${j.authors} (${j.year}). "${j.title}". ${j.publication || ""}. DOI: ${j.doi || "-"}\n   Temuan: ${j.keyFindings || j.abstract || ""}`
+      ).join("\n\n");
+
+      const systemPrompt = `Anda adalah Ahli Penulisan Proposal & Metodologi Skripsi Indonesia.
+Tugas Anda adalah menyusun bagian "1.1 Latar Belakang Masalah" dengan alur PIRAMIDA TERBALIK 5 TAHAP berbasis jurnal terverifikasi:
+- Paragraf 1: Konsep & Teori Utama terkait topik "${project?.title || ""}" berdasarkan sumber kredibel.
+- Paragraf 2: Fenomena & Data Empiris Terkini (tren, data terukur, bukti lapangan).
+- Paragraf 3: Dampak Masalah & Urgensi Penelitian (mengapa penting diteliti sekarang).
+- Paragraf 4: Tinjauan 3-4 Penelitian Terdahulu dari daftar jurnal terverifikasi [1], [2], dst., ditutup dengan identifikasi RESEARCH GAP.
+- Paragraf 5: Penegasan Solusi, Fokus Penelitian, Novelty, dan Kontribusi yang ditawarkan.
+
+ATURAN MUTLAK:
+- DILARANG KERAS MENGARANG SITASI! Seluruh sitasi [n] wajib merujuk ke daftar jurnal riil di bawah.
+- NOL DASH: DILARANG MENGGUNAKAN EM-DASH (—) ATAUPUN EN-DASH (–)!
+- Bebas pembuka klise "Di era modern ini" dsb.
+- Panjang total 900-1.500 kata dalam paragraf naratif mengalir tanpa sub-judul.
+- Format output: HANYA teks naskah latar belakang lengkap.`;
+
+      const aiRes = await executeAiCompletion({
+        featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+        userId,
+        projectId,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `DAFTAR JURNAL ILMIAH TERVERIFIKASI:\n${journalsList || "(Gunakan dasar ilmiah terpercaya)"}\n\nKONTEKS PENELITI:\n${textToProcess || project?.title || ""}\n\nSusun naskah 1.1 Latar Belakang Masalah lengkap:`,
+          },
+        ],
+        temperature: 0.25,
+        maxTokens: 4000,
+      });
+
+      const cleaned = sanitizeAcademicText(aiRes.content?.trim() || textToProcess);
+      return {
+        ok: true,
+        output: cleaned,
+        sourceDraftVersion: draftVersion,
+      };
+    }
+
+    case "ieee_scopus_grounding": {
+      const project = await prisma.researchProject.findUnique({
+        where: { id: projectId },
+        include: {
+          journals: {
+            where: { status: "APPROVED" },
+            select: { id: true, title: true, abstract: true, keyFindings: true, authors: true, year: true, publication: true, doi: true },
+          },
+        },
+      });
+
+      const journalsList = (project?.journals || []).map((j, i) =>
+        `[${i + 1}] ${j.authors} (${j.year}). "${j.title}". ${j.publication || ""}. DOI: ${j.doi || "-"}\n   Temuan: ${j.keyFindings || j.abstract || ""}`
+      ).join("\n\n");
+
+      const systemPrompt = `Anda adalah Senior Research Auditor untuk Jurnal Bereputasi (IEEE / Scopus).
+Tugas Anda adalah memeriksa dan menyesuaikan naskah akademik mahasiswa agar 100% BERLANDASKAN JURNAL BEREPUTASI (IEEE / Scopus / SINTA 1-2):
+1. Tautkan setiap argumen teoretis dan klaim empiris ke rujukan jurnal [1], [2], dst. yang relevan dari daftar.
+2. DILARANG KERAS MENGARANG SITASI ATAU DOI FIKTIF.
+3. Hapus setiap klaim yang tidak berdasar atau gantikan dengan telaah dari jurnal yang tersedia.
+4. Terapkan parafrase akademis (hindari plagiarisme verbatim).
+5. Nol em-dash (—) dan en-dash (–).
+6. Format output: HANYA teks naskah yang telah tergrounding secara valid.`;
+
+      const aiRes = await executeAiCompletion({
+        featureCode: "PROPOSAL_SECTION_SYNTHESIS",
+        userId,
+        projectId,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `DRAF NASKAH:\n${textToProcess}\n\nDAFTAR JURNAL RIIL POOL PROYEK:\n${journalsList || "(Jurnal pool)"}\n\nLakukan grounding ilmiah bereputasi pada naskah:`,
+          },
+        ],
+        temperature: 0.2,
+        maxTokens: 3800,
+      });
+
+      const cleaned = sanitizeAcademicText(aiRes.content?.trim() || textToProcess);
+      return {
+        ok: true,
+        output: cleaned,
+        sourceDraftVersion: draftVersion,
+      };
+    }
+
     default:
       throw new Error(`Unhandled skill: ${skill}`);
   }
@@ -382,7 +519,13 @@ export async function routeIntent(userText, projectId) {
 
   // 2. Deteksi Skill
   let detectedSkill = null;
-  if (normText.includes("plagiar") || normText.includes("kemiripan") || normText.includes("similarity")) {
+  if (normText.includes("slop") || normText.includes("humanize") || normText.includes("manusiakan") || normText.includes("anti ai") || normText.includes("autentik")) {
+    detectedSkill = "writing_ai_slop";
+  } else if (normText.includes("latar belakang") || normText.includes("bab 1") || normText.includes("bab i") || normText.includes("pendahuluan")) {
+    detectedSkill = "latar_belakang_skripsi";
+  } else if (normText.includes("ieee") || normText.includes("scopus") || normText.includes("grounding") || normText.includes("bereputasi")) {
+    detectedSkill = "ieee_scopus_grounding";
+  } else if (normText.includes("plagiar") || normText.includes("kemiripan") || normText.includes("similarity")) {
     detectedSkill = "plagiarism_check";
   } else if (normText.includes("parafrase") || normText.includes("bagusin") || normText.includes("polish") || normText.includes("tingkatkan gaya")) {
     detectedSkill = "paraphrase";
@@ -400,3 +543,4 @@ export async function routeIntent(userText, projectId) {
     confidence: detectedSkill ? 0.9 : 0.4,
   };
 }
+
