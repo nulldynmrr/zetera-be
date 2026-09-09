@@ -102,3 +102,62 @@ export async function getMaiarouterChatCompletion({
 
   return response.json();
 }
+
+/**
+ * 3. Sinkronisasi Saldo Riil Maiarouter & Rekonsiliasi Pengeluaran Token
+ */
+export async function fetchMaiarouterBalance(modelId = null, maxBudgetUsd = 50.0) {
+  const { apiKey, chatUrl } = await getMaiarouterConfig();
+  const baseUrl = chatUrl.replace(/\/chat\/completions\/?$/, "").replace(/\/$/, "");
+
+  let liveBalance = null;
+  let syncSource = "LOCAL_RECONCILIATION";
+
+  // Probe API Billing resmi jika tersedia
+  if (apiKey) {
+    const candidateEndpoints = [
+      `${baseUrl}/dashboard/billing/subscription`,
+      `${baseUrl}/user/balance`,
+      `${baseUrl}/api/user/self`,
+      `${baseUrl}/balance`,
+    ];
+
+    for (const url of candidateEndpoints) {
+      try {
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          signal: AbortSignal.timeout(3000), // Timeout cepat 3 detik
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Ekstrak angka saldo dari variasi response OneAPI / NewAPI / OpenAI Gateway
+          const foundBalance =
+            data.total_available ??
+            data.balance ??
+            data.data?.balance ??
+            data.data?.quota ??
+            (data.hard_limit_usd && data.total_usage ? data.hard_limit_usd - data.total_usage : null);
+
+          if (foundBalance !== null && !isNaN(Number(foundBalance))) {
+            liveBalance = Number(foundBalance);
+            syncSource = "MAIAROUTER_LIVE_API";
+            break;
+          }
+        }
+      } catch (_) {
+        // Lanjutkan probe ke endpoint berikutnya jika gagal
+      }
+    }
+  }
+
+  return {
+    liveBalance,
+    syncSource,
+  };
+}
+

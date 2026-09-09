@@ -66,6 +66,19 @@ router.patch("/credit-packages/:id", updateCreditPackage);
 router.delete("/credit-packages/:id", deleteCreditPackage);
 router.post("/credit-packages/simulate", simulateIdealPackage);
 
+// ── 5b. Campaign Vouchers Management ──
+import {
+  getAdminVouchers,
+  createAdminVoucher,
+  updateAdminVoucher,
+  deleteAdminVoucher,
+} from "../controllers/admin/vouchers.controller.js";
+
+router.get("/vouchers", getAdminVouchers);
+router.post("/vouchers", createAdminVoucher);
+router.patch("/vouchers/:id", updateAdminVoucher);
+router.delete("/vouchers/:id", deleteAdminVoucher);
+
 // ── 6. Live AI Usage Logs & Telemetry ──
 router.get("/usage-logs", getUsageLogs);
 

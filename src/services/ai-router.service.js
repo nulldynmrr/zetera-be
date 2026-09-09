@@ -3,7 +3,13 @@ import { getSecret } from "./config.service.js";
 import { decryptText } from "../lib/encryption.js";
 import { getAiProviderAdapter } from "../modules/ai-adapters/ai-provider.factory.js";
 import { GroqAdapter } from "../modules/ai-adapters/groq.adapter.js";
-import { settleActualUsage, estimateCreditCost, verifyBalance } from "./billing.service.js";
+import {
+  settleActualUsage,
+  estimateCreditCost,
+  verifyBalance,
+  reserveCredits,
+  refundReservedCredits,
+} from "./billing.service.js";
 
 const fallbackGroqAdapter = new GroqAdapter();
 
@@ -119,21 +125,22 @@ export async function executeAiCompletion({
 
   const { feature, primaryModel, fallbackModel } = await resolveModelForFeature(featureCode);
 
-  // 0. Pre-Flight Credit Verification (Anti-Cost Leak & Anti-Fraud)
-  // Verifikasi saldo pengguna sebelum API provider dipanggil untuk mencegah kebocoran biaya token
+  // 0. Pre-Flight Atomic Credit Reservation (Anti-Cost Leak & Anti-Fraud)
   const costEstimate = await estimateCreditCost(featureCode, maxTokens, userId).catch((err) => {
     console.warn(`[AI-ROUTER] Gagal menghitung estimasi biaya kredit untuk fitur "${featureCode}":`, err.message);
     return null;
   });
 
+  let reservedAmount = 0;
   if (costEstimate && !costEstimate.isFreeTier && costEstimate.estimatedCredits > 0) {
     if (!userId) {
       const authErr = new Error("Autentikasi akun pengguna diperlukan untuk mengakses fitur riset berbayar ini.");
       authErr.statusCode = 401;
       throw authErr;
     }
-    // Verifikasi saldo kredit - lempar 402 jika saldo tidak cukup
-    await verifyBalance(userId, costEstimate.estimatedCredits);
+    // Kunci kredit secara atomik di database sebelum memanggil provider AI
+    const reservation = await reserveCredits(userId, costEstimate.estimatedCredits);
+    reservedAmount = reservation.reservedCredits || 0;
   }
 
   let targetModel = primaryModel;
@@ -141,76 +148,88 @@ export async function executeAiCompletion({
   let usedFallback = false;
   let usageInfo = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
-  // 1. Eksekusi Primary Model
-  if (targetModel && targetModel.isActive) {
-    try {
-      response = await dispatchModelCall({
-        model: targetModel,
-        messages,
-        temperature,
-        maxTokens,
-        jsonMode,
-      });
-      if (!response?.content || !response.content.trim()) {
-        throw new Error(`Model "${targetModel.modelName}" mengembalikan respon kosong.`);
-      }
-      usageInfo = response.usage || usageInfo;
-    } catch (err) {
-      console.warn(`[AI-ROUTER] Primary model "${targetModel.modelName}" gagal: ${err.message}. Mencoba fallback...`);
-      if (fallbackModel && fallbackModel.isActive) {
-        targetModel = fallbackModel;
-        usedFallback = true;
+  try {
+    // 1. Eksekusi Primary Model
+    if (targetModel && targetModel.isActive) {
+      try {
         response = await dispatchModelCall({
-          model: fallbackModel,
+          model: targetModel,
           messages,
           temperature,
           maxTokens,
           jsonMode,
         });
         if (!response?.content || !response.content.trim()) {
-          throw new Error(`Fallback model "${fallbackModel.modelName}" mengembalikan respon kosong.`);
+          throw new Error(`Model "${targetModel.modelName}" mengembalikan respon kosong.`);
         }
         usageInfo = response.usage || usageInfo;
-      } else {
-        throw err;
+      } catch (err) {
+        console.warn(`[AI-ROUTER] Primary model "${targetModel.modelName}" gagal: ${err.message}. Mencoba fallback...`);
+        if (fallbackModel && fallbackModel.isActive) {
+          targetModel = fallbackModel;
+          usedFallback = true;
+          response = await dispatchModelCall({
+            model: fallbackModel,
+            messages,
+            temperature,
+            maxTokens,
+            jsonMode,
+          });
+          if (!response?.content || !response.content.trim()) {
+            throw new Error(`Fallback model "${fallbackModel.modelName}" mengembalikan respon kosong.`);
+          }
+          usageInfo = response.usage || usageInfo;
+        } else {
+          throw err;
+        }
       }
-    }
-  } else if (fallbackModel && fallbackModel.isActive) {
-    targetModel = fallbackModel;
-    usedFallback = true;
-    response = await dispatchModelCall({
-      model: fallbackModel,
-      messages,
-      temperature,
-      maxTokens,
-      jsonMode,
-    });
-    usageInfo = response.usage || usageInfo;
-  } else {
-    // Default fallback to Groq via Adapter
-    const groqKey =
-      (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI")) ||
-      (await getSecret("GROQ_API_KEY")) ||
-      process.env.GROQ_API_KEY;
+    } else if (fallbackModel && fallbackModel.isActive) {
+      targetModel = fallbackModel;
+      usedFallback = true;
+      response = await dispatchModelCall({
+        model: fallbackModel,
+        messages,
+        temperature,
+        maxTokens,
+        jsonMode,
+      });
+      usageInfo = response.usage || usageInfo;
+    } else {
+      // Default fallback to Groq via Adapter
+      const groqKey =
+        (await getSecret("GROQ_API_KEY_FRAMEWORK_RELASI")) ||
+        (await getSecret("GROQ_API_KEY")) ||
+        process.env.GROQ_API_KEY;
 
-    if (!groqKey) {
-      throw new Error("Tidak ada model AI aktif atau API Key yang tersedia untuk fitur ini.");
-    }
+      if (!groqKey) {
+        throw new Error("Tidak ada model AI aktif atau API Key yang tersedia untuk fitur ini.");
+      }
 
-    response = await fallbackGroqAdapter.executeCompletion({
-      model: { modelName: "qwen/qwen3.8-27b" },
-      messages,
-      temperature,
-      maxTokens,
-      jsonMode,
-      apiKey: groqKey,
-    });
-    usageInfo = response.usage || usageInfo;
+      response = await fallbackGroqAdapter.executeCompletion({
+        model: { modelName: "qwen/qwen3.8-27b" },
+        messages,
+        temperature,
+        maxTokens,
+        jsonMode,
+        apiKey: groqKey,
+      });
+      usageInfo = response.usage || usageInfo;
+    }
+  } catch (aiErr) {
+    // Anti-Fraud: Jika pemanggilan AI gagal total, kembalikan kredit yang telah direservasi
+    if (reservedAmount > 0 && userId) {
+      await refundReservedCredits(
+        userId,
+        reservedAmount,
+        `Pengembalian otomatis kredit reservasi karena pemanggilan AI gagal: ${aiErr.message}`
+      );
+    }
+    throw aiErr;
   }
 
   const responseTimeMs = Date.now() - startTime;
 
-  // 2. Telemetry & Billing Settle (Hanya dieksekusi setelah pemanggilan AI sukses)
+  // 2. Telemetry & Billing Settle (Rekonsiliasi pemakaian riil terhadap reserved credits)
   const inputTokens = usageInfo.prompt_tokens || Math.round(JSON.stringify(messages).length / 4);
   const outputTokens = usageInfo.completion_tokens || Math.round((response.content || "").length / 4);
 
@@ -224,6 +243,7 @@ export async function executeAiCompletion({
       outputTokens,
       responseTimeMs,
       statusCode: 200,
+      reservedCredits: reservedAmount,
     });
   } catch (logErr) {
     console.error("[AI-ROUTER] Gagal mencatat telemetri billing:", logErr.message);

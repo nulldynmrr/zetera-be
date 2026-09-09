@@ -1,6 +1,7 @@
 import prisma from "../../lib/prisma.js";
 import { encryptText, decryptText } from "../../lib/encryption.js";
 import { Groq } from "groq-sdk";
+import { fetchMaiarouterBalance } from "../../services/maiarouter.service.js";
 
 /**
  * AI Model Configurations CRUD (Terenkripsi AES-256) & Testing
@@ -220,19 +221,40 @@ export async function syncAiModelBalance(req, res, next) {
       return res.status(404).json({ success: false, message: "Model tidak ditemukan" });
     }
 
-    // Ping test latency
     const start = Date.now();
-    let simulatedBalance = model.lastSyncedBalance || 45.0;
 
-    // Kurangi sedikit simulasi penggunaan
-    if (simulatedBalance > 1) {
-      simulatedBalance = Number((simulatedBalance - 0.005).toFixed(3));
+    // 1. Hitung pengeluaran kumulatif telemetri lokal dari tabel ai_usage_logs
+    const usageAgg = await prisma.aiUsageLog.aggregate({
+      where: { modelId: id },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      _count: { id: true },
+    });
+
+    const cumulativeSpentUsd = usageAgg._sum.costUsd || 0;
+    const totalGenerations = usageAgg._count.id || 0;
+
+    // 2. Jika model adalah Maiarouter, coba probe live API
+    let finalBalance = null;
+    let syncMethod = "LOCAL_RECONCILIATION";
+
+    if (model.baseUrl?.includes("maiarouter") || model.routerLabel?.toLowerCase().includes("maia")) {
+      const probe = await fetchMaiarouterBalance(model.id, model.maxBudgetUsd || 50.0);
+      if (probe.liveBalance !== null) {
+        finalBalance = probe.liveBalance;
+        syncMethod = probe.syncSource;
+      }
+    }
+
+    // 3. Fallback rekonsiliasi presisi jika live API tidak mengekspos endpoint saldo
+    if (finalBalance === null) {
+      const initialBudget = model.maxBudgetUsd || 50.0;
+      finalBalance = Math.max(0, Number((initialBudget - cumulativeSpentUsd).toFixed(4)));
     }
 
     const updated = await prisma.aiModelConfig.update({
       where: { id },
       data: {
-        lastSyncedBalance: simulatedBalance,
+        lastSyncedBalance: finalBalance,
         lastSyncedAt: new Date(),
       },
     });
@@ -241,8 +263,15 @@ export async function syncAiModelBalance(req, res, next) {
 
     res.status(200).json({
       success: true,
-      message: `Sinkronisasi model "${model.routerLabel}" berhasil! (${latencyMs}ms)`,
-      data: updated,
+      message: `Sinkronisasi saldo model "${model.routerLabel}" berhasil! (${latencyMs}ms, ${syncMethod})`,
+      data: {
+        ...updated,
+        metrics: {
+          cumulativeSpentUsd: Number(cumulativeSpentUsd.toFixed(4)),
+          totalGenerations,
+          syncMethod,
+        },
+      },
     });
   } catch (err) {
     next(err);

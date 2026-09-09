@@ -43,6 +43,12 @@ export async function loginUser({ email, password }) {
   }
 
   const { password: _, ...safeUser } = user;
+  const totalRemaining = await prisma.userCreditBalance.aggregate({
+    where: { userId: user.id },
+    _sum: { creditsRemaining: true },
+  });
+  safeUser.credits = totalRemaining._sum.creditsRemaining || 0;
+
   const token = signToken(user);
   return { user: safeUser, token };
 }
@@ -50,7 +56,27 @@ export async function loginUser({ email, password }) {
 export async function getUserById(id) {
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      partnerStatus: true,
+      rewardDiamonds: true,
+      createdAt: true,
+    },
   });
-  return user;
+  if (!user) return null;
+
+  const totalRemaining = await prisma.userCreditBalance.aggregate({
+    where: { userId: id },
+    _sum: { creditsRemaining: true },
+  });
+
+  return {
+    ...user,
+    credits: totalRemaining._sum.creditsRemaining || 0,
+    isRewardPartner: Boolean(user.partnerStatus || (user.rewardDiamonds && user.rewardDiamonds > 0)),
+  };
 }
+

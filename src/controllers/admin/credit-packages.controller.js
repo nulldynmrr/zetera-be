@@ -24,6 +24,11 @@ export async function createCreditPackage(req, res, next) {
       durationDays = null,
       priceNormal,
       priceDiscount = null,
+      firstMonthDiscountPrice = null,
+      discountStart = null,
+      discountEnd = null,
+      discountClaimLimit = null,
+      perUserLimit = 1,
       badgeLabel = "",
       isActive = true,
     } = req.body;
@@ -42,6 +47,11 @@ export async function createCreditPackage(req, res, next) {
         durationDays: durationDays ? Number(durationDays) : null,
         priceNormal: Number(priceNormal),
         priceDiscount: priceDiscount ? Number(priceDiscount) : null,
+        firstMonthDiscountPrice: firstMonthDiscountPrice ? Number(firstMonthDiscountPrice) : null,
+        discountStart: discountStart ? new Date(discountStart) : null,
+        discountEnd: discountEnd ? new Date(discountEnd) : null,
+        discountClaimLimit: discountClaimLimit ? Number(discountClaimLimit) : null,
+        perUserLimit: Number(perUserLimit) || 1,
         badgeLabel: badgeLabel ? badgeLabel.trim() : null,
         isActive: Boolean(isActive),
       },
@@ -60,8 +70,21 @@ export async function createCreditPackage(req, res, next) {
 export async function updateCreditPackage(req, res, next) {
   try {
     const { id } = req.params;
-    const { name, type, creditsGranted, durationDays, priceNormal, priceDiscount, badgeLabel, isActive } =
-      req.body;
+    const {
+      name,
+      type,
+      creditsGranted,
+      durationDays,
+      priceNormal,
+      priceDiscount,
+      firstMonthDiscountPrice,
+      discountStart,
+      discountEnd,
+      discountClaimLimit,
+      perUserLimit,
+      badgeLabel,
+      isActive,
+    } = req.body;
 
     const dataToUpdate = {};
     if (name !== undefined) dataToUpdate.name = name.trim();
@@ -70,6 +93,13 @@ export async function updateCreditPackage(req, res, next) {
     if (durationDays !== undefined) dataToUpdate.durationDays = durationDays ? Number(durationDays) : null;
     if (priceNormal !== undefined) dataToUpdate.priceNormal = Number(priceNormal);
     if (priceDiscount !== undefined) dataToUpdate.priceDiscount = priceDiscount ? Number(priceDiscount) : null;
+    if (firstMonthDiscountPrice !== undefined)
+      dataToUpdate.firstMonthDiscountPrice = firstMonthDiscountPrice ? Number(firstMonthDiscountPrice) : null;
+    if (discountStart !== undefined) dataToUpdate.discountStart = discountStart ? new Date(discountStart) : null;
+    if (discountEnd !== undefined) dataToUpdate.discountEnd = discountEnd ? new Date(discountEnd) : null;
+    if (discountClaimLimit !== undefined)
+      dataToUpdate.discountClaimLimit = discountClaimLimit ? Number(discountClaimLimit) : null;
+    if (perUserLimit !== undefined) dataToUpdate.perUserLimit = Number(perUserLimit) || 1;
     if (badgeLabel !== undefined) dataToUpdate.badgeLabel = badgeLabel ? badgeLabel.trim() : null;
     if (isActive !== undefined) dataToUpdate.isActive = Boolean(isActive);
 
